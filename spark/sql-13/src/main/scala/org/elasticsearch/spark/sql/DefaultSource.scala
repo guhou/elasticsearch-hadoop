@@ -1,12 +1,15 @@
 package org.elasticsearch.spark.sql
 
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
-import scala.None
-import scala.Null
+
 import scala.collection.JavaConverters.mapAsJavaMapConverter
-import scala.collection.mutable.ArrayOps
 import scala.collection.mutable.LinkedHashMap
 import scala.collection.mutable.LinkedHashSet
+
+import org.apache.commons.logging.LogFactory
+import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Row
@@ -34,7 +37,9 @@ import org.apache.spark.sql.sources.Or
 import org.apache.spark.sql.sources.PrunedFilteredScan
 import org.apache.spark.sql.sources.RelationProvider
 import org.apache.spark.sql.sources.SchemaRelationProvider
+import org.apache.spark.sql.types.DateType
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.TimestampType
 import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException
 import org.elasticsearch.hadoop.EsHadoopIllegalStateException
 import org.elasticsearch.hadoop.cfg.ConfigurationOptions
@@ -48,7 +53,8 @@ import org.elasticsearch.hadoop.util.IOUtils
 import org.elasticsearch.hadoop.util.StringUtils
 import org.elasticsearch.spark.cfg.SparkSettingsManager
 import org.elasticsearch.spark.serialization.ScalaValueWriter
-import org.apache.commons.logging.LogFactory
+
+import javax.xml.bind.DatatypeConverter
 
 private[sql] class DefaultSource extends RelationProvider with SchemaRelationProvider with CreatableRelationProvider  {
 
@@ -75,12 +81,13 @@ private[sql] class DefaultSource extends RelationProvider with SchemaRelationPro
   }
 
   private def params(parameters: Map[String, String]) = {
-    // . seems to be problematic when specifying the options
+    // '.' seems to be problematic when specifying the options
     val params = parameters.map { case (k, v) => (k.replace('_', '.'), v)}. map { case (k, v) =>
       if (k.startsWith("es.")) (k, v)
       else if (k == "path") ("es.resource", v)
       else if (k == "pushdown") (Utils.DATA_SOURCE_PUSH_DOWN, v)
       else if (k == "strict") (Utils.DATA_SOURCE_PUSH_DOWN_STRICT, v)
+      else if (k == "double.filtering") (Utils.DATA_SOURCE_KEEP_HANDLED_FILTERS, v)
       else ("es." + k, v)
     }
     params.getOrElse(ConfigurationOptions.ES_RESOURCE, throw new EsHadoopIllegalArgumentException("resource must be specified for Elasticsearch resources."))
@@ -121,24 +128,70 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
       }
     }
 
-    if (filters != null && filters.size > 0 && Utils.isPushDown(cfg)) {
-      val log = logger
-      if (log.isDebugEnabled()) {
-        log.debug(s"Pushing down filters ${filters.mkString("[", ",", "]")}")
-      }
-      val filterString = createDSLFromFilters(filters, Utils.isPushDownStrict(cfg))
+    if (filters != null && filters.size > 0) {
+      if (Utils.isPushDown(cfg)) {
+        if (logger.isDebugEnabled()) {
+          logger.debug(s"Pushing down filters ${filters.mkString("[", ",", "]")}")
+        }
+        val filterString = createDSLFromFilters(filters, Utils.isPushDownStrict(cfg))
 
-      if (log.isTraceEnabled()) {
-        log.trace("Transformed filters into DSL $filterString")
+        if (logger.isTraceEnabled()) {
+          logger.trace(s"Transformed filters into DSL ${filterString.mkString("[", ",", "]")}")
+        }
+        paramWithScan += (InternalConfigurationOptions.INTERNAL_ES_QUERY_FILTERS -> IOUtils.serializeToBase64(filterString))
       }
-      paramWithScan += (InternalConfigurationOptions.INTERNAL_ES_QUERY_FILTERS -> IOUtils.serializeToBase64(filterString))
+      else {
+        if (logger.isTraceEnabled()) {
+          logger.trace("Push-down is disabled; ignoring Spark filters...")
+        }
+      }
     }
 
     new ScalaEsRowRDD(sqlContext.sparkContext, paramWithScan, lazySchema)
   }
 
+  // introduced in Spark 1.6
+  override def unhandledFilters(filters: Array[Filter]): Array[Filter] = {
+    if (Utils.isKeepHandledFilters(cfg) || filters == null || filters.size == 0)
+      return filters;
+
+    // walk the filters (things like And / Or) and see whether we recognize all of them
+    // if we do, skip the filter, otherwise let it in there even though we might push some of it
+    def unhandled(filter: Filter): Boolean = {
+      filter match {
+        case EqualTo(_, _)                                                            => false
+        case GreaterThan(_, _)                                                        => false
+        case GreaterThanOrEqual(_, _)                                                 => false
+        case LessThan(_, _)                                                           => false
+        case LessThanOrEqual(_, _)                                                    => false
+        // In is problematic - see translate, don't filter it
+        case In(_, _)                                                                 => true
+        case IsNull(_)                                                                => false
+        case IsNotNull(_)                                                             => false
+        case And(left, right)                                                         => unhandled(left) || unhandled(right)
+        case Or(left, right)                                                          => unhandled(left) || unhandled(right)
+        case Not(pred)                                                                => unhandled(pred)
+        // Spark 1.3.1+
+        case f:Product if isClass(f, "org.apache.spark.sql.sources.StringStartsWith") => false
+        case f:Product if isClass(f, "org.apache.spark.sql.sources.StringEndsWith")   => false
+        case f:Product if isClass(f, "org.apache.spark.sql.sources.StringContains")   => false
+        // Spark 1.5+
+        case f:Product if isClass(f, "org.apache.spark.sql.sources.EqualNullSafe")    => false
+
+        // unknown
+        case _                                                                        => true
+      }
+    }
+
+    val filtered = filters.filter(unhandled)
+    if (logger.isTraceEnabled()) {
+      logger.trace(s"Unhandled filters from ${filters.mkString("[", ",", "]")} to ${filtered.mkString("[", ",", "]")}")
+    }
+    filtered
+  }
+
   private def createDSLFromFilters(filters: Array[Filter], strictPushDown: Boolean) = {
-    filters.map(filter => translateFilter(filter, strictPushDown)).filter(query => query.trim().length() > 0)
+    filters.map(filter => translateFilter(filter, strictPushDown)).filter(query => StringUtils.hasText(query))
   }
 
   // string interpolation FTW
@@ -167,7 +220,22 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
         if (filtered.isEmpty) {
           return ""
         }
-        if (strictPushDown) s"""{"terms":{"$attribute":${extractAsJsonArray(filtered)}}}"""
+
+        // further more, match query only makes sense with String types so for other types apply a terms query (aka strictPushDown)
+        val attrType = lazySchema.struct(attribute).dataType
+        val isStrictType = attrType match {
+          case DateType |
+               TimestampType => true
+          case _             => false
+        }
+
+        if (!strictPushDown && isStrictType) {
+          if (logger.isDebugEnabled()) {
+            logger.debug(s"Attribute $attribute type $attrType not suitable for match query; using terms (strict) instead")
+          }
+        }
+
+        if (strictPushDown || isStrictType) s"""{"terms":{"$attribute":${extractAsJsonArray(filtered)}}}"""
         else s"""{"or":{"filters":[${extractMatchArray(attribute, filtered)}]}}"""
       }
       case IsNull(attribute)                    => s"""{"missing":{"field":"$attribute"}}"""
@@ -206,12 +274,9 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
         s"""{"query":{"wildcard":{"${f.productElement(0)}":"*$arg*"}}}"""
       }
 
-      // the filter below are available only from Spark 1.5.0
+      // the filters below are available only from Spark 1.5.0
 
-      //
-      // [[EqualNullSafe]] Filter notes:
-
-      case f:Product if isClass(f, "org.apache.spark.sql.sources.EqualNullSafe")   => {
+      case f:Product if isClass(f, "org.apache.spark.sql.sources.EqualNullSafe")    => {
         var arg = extract(f.productElement(1))
         if (strictPushDown) s"""{"term":{"${f.productElement(0)}":$arg}}"""
         else s"""{"query":{"match":{"${f.productElement(0)}":$arg}}}"""
@@ -268,14 +333,23 @@ private[sql] case class ElasticsearchRelation(parameters: Map[String, String], @
       case null           => "null"
       case u: Unit        => "null"
       case b: Boolean     => b.toString
-      case c: Char        => if (inJsonFormat) StringUtils.toJsonString(c) else c.toString()
       case by: Byte       => by.toString
       case s: Short       => s.toString
       case i: Int         => i.toString
       case l: Long        => l.toString
       case f: Float       => f.toString
       case d: Double      => d.toString
-      case s: String      => if (inJsonFormat) StringUtils.toJsonString(s) else s
+      case bd: BigDecimal  => bd.toString
+      case _: Char        |
+           _: String      |
+           _: Array[Byte]  => if (inJsonFormat) StringUtils.toJsonString(value.toString) else value.toString()
+      // handle Timestamp also
+      case dt: Date        => {
+        val cal = Calendar.getInstance()
+        cal.setTime(dt)
+        val str = DatatypeConverter.printDateTime(cal)
+        if (inJsonFormat) StringUtils.toJsonString(str) else str
+      }
       case ar: Array[Any] =>
         if (asJsonArray) (for (i <- ar) yield extract(i, true, false)).distinct.mkString("[", ",", "]")
         else (for (i <- ar) yield extract(i, false, false)).distinct.mkString("\"", " ", "\"")

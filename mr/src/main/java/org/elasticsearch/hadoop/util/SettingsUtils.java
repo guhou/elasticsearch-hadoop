@@ -18,6 +18,8 @@
  */
 package org.elasticsearch.hadoop.util;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -26,6 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
 import org.elasticsearch.hadoop.cfg.InternalConfigurationOptions;
 import org.elasticsearch.hadoop.cfg.Settings;
 
@@ -34,8 +37,8 @@ public abstract class SettingsUtils {
     private static List<String> qualifyNodes(String nodes, int defaultPort) {
         List<String> list = StringUtils.tokenize(nodes);
         for (int i = 0; i < list.size(); i++) {
-            String host = list.get(i);
-            list.set(i, qualifyNode(host, defaultPort));
+            String nodeIp = resolveHostToIpIfNecessary(list.get(i));
+            list.set(i, qualifyNode(nodeIp, defaultPort));
         }
         return list;
     }
@@ -52,6 +55,21 @@ public abstract class SettingsUtils {
         }
 
         return node + ":" + defaultPort;
+    }
+
+    private static String resolveHostToIpIfNecessary(String host) {
+        int index = host.lastIndexOf(':');
+        String name = index > 0 ? host.substring(0, index) : host;
+        // if the port is specified, include the ":"
+        String port = index > 0 ? host.substring(index) : "";
+        if (StringUtils.hasLetter(name)) {
+            try {
+                return InetAddress.getByName(name).getHostAddress() + port;
+            } catch (UnknownHostException ex) {
+                throw new EsHadoopIllegalArgumentException("Cannot resolve ip for hostname: " + name);
+            }
+        }
+        return host;
     }
 
     public static void pinNode(Settings settings, String node) {
