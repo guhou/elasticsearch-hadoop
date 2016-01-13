@@ -440,8 +440,6 @@ public class CommonsHttpTransport implements Transport, StatsAware {
 
             ArrayList<AbstractMap.SimpleEntry<String, String>> headerList = new ArrayList<AbstractMap.SimpleEntry<String, String>>();
             http.setRequestHeader(new Header("Host", host));
-//            String httpClientString = new DefaultHttpParamsFactory().getDefaultParams().getParameter(HttpMethodParams.USER_AGENT).toString();
-//            http.setRequestHeader(new Header("User-Agent", httpClientString));
             for (Header h: http.getRequestHeaders()) {
                 headerList.add(new AbstractMap.SimpleEntry<String, String>(h.getName(), h.getValue()));
             }
@@ -456,9 +454,16 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             }
 
             ArrayList<AbstractMap.SimpleEntry<String, String>> queryList = new  ArrayList<AbstractMap.SimpleEntry<String, String>>();
+            String path = String.valueOf(request.path());
             if (request.params() != null) {
-                queryList = AwsSigner.splitQuery(String.valueOf(request.params()));
+                queryList = AwsSigner.parseQuery(String.valueOf(request.params()));
             }
+            int idx = path.indexOf('?');
+            if (idx > -1 && idx != path.length() - 1) {
+                queryList.addAll(AwsSigner.parseQuery(path.substring(idx + 1)));
+                path = path.substring(0, idx);
+            }
+
             String authHeader = "";
             try {
                 authHeader = AwsSigner.getAuthHeader(
@@ -468,7 +473,7 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                         region,
                         "es",
                         request.method().name(),
-                        uri.toString(),
+                        path,
                         headerList,
                         queryList,
                         payload

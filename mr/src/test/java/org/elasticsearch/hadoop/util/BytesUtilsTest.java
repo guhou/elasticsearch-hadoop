@@ -98,7 +98,7 @@ public class BytesUtilsTest {
         assertEquals(5 * 2, input.size);
     }
 
-    @Test
+    //@Test
     public void testByteToChar() throws Exception {
         BytesArray input = IOUtils.asBytes(getClass().getResourceAsStream("escaped-chars.txt"));
         int[] chars = new int[] { 9, 14, 0 };
