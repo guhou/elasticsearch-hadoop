@@ -42,10 +42,13 @@ import org.junit.runners.Suite;
 @Ignore("Classpath madness")
 public class YarnSuite {
 
-    public static YarnConfiguration CFG = new YarnConfiguration();
-
     public static ClientRpc YC;
     public static Properties TEST_PROPS = PropertiesUtils.load(YarnSuite.class, "/yarn-test.properties");
+    public static YarnConfiguration CFG = new YarnConfiguration();
+
+    static {
+        CFG.setInt(YarnConfiguration.DEBUG_NM_DELETE_DELAY_SEC, -1);
+    }
 
     public static YarnTestCluster CLUSTER = new YarnTestCluster(CFG);
     public static DistributedFileSystem FS;

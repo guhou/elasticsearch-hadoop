@@ -39,7 +39,7 @@ public class SettingsUtilsTest {
         PropertiesSettings settings = new PropertiesSettings(props);
         List<String> nodes = SettingsUtils.discoveredOrDeclaredNodes(settings);
         assertThat(nodes.size(), equalTo(1));
-        assertThat("localhost:9800", equalTo(nodes.get(0)));
+        assertThat("127.0.0.1:9800", equalTo(nodes.get(0)));
     }
 
     @Test
@@ -52,7 +52,7 @@ public class SettingsUtilsTest {
         PropertiesSettings settings = new PropertiesSettings(props);
         List<String> nodes = SettingsUtils.discoveredOrDeclaredNodes(settings);
         assertThat(nodes.size(), equalTo(1));
-        assertThat("localhost:9800", equalTo(nodes.get(0)));
+        assertThat("127.0.0.1:9800", equalTo(nodes.get(0)));
     }
 
     @Test
@@ -65,6 +65,32 @@ public class SettingsUtilsTest {
         PropertiesSettings settings = new PropertiesSettings(props);
         List<String> nodes = SettingsUtils.discoveredOrDeclaredNodes(settings);
         assertThat(nodes.size(), equalTo(1));
-        assertThat("localhost:9800", equalTo(nodes.get(0)));
+        assertThat("127.0.0.1:9800", equalTo(nodes.get(0)));
+    }
+
+    @Test
+    public void testHostWithoutAPortFallingBackToDefaultAndNoDiscoveryWithSchema() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("es.nodes", "http://localhost");
+        props.setProperty("es.port", "9800");
+        props.setProperty("es.nodes.discovery", "false");
+
+        PropertiesSettings settings = new PropertiesSettings(props);
+        List<String> nodes = SettingsUtils.discoveredOrDeclaredNodes(settings);
+        assertThat(nodes.size(), equalTo(1));
+        assertThat("http://127.0.0.1:9800", equalTo(nodes.get(0)));
+    }
+
+    @Test
+    public void testHostWithAPortAndFallBackWithSchema() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("es.nodes", "http://localhost:9800");
+        props.setProperty("es.port", "9300");
+        props.setProperty("es.nodes.discovery", "false");
+
+        PropertiesSettings settings = new PropertiesSettings(props);
+        List<String> nodes = SettingsUtils.discoveredOrDeclaredNodes(settings);
+        assertThat(nodes.size(), equalTo(1));
+        assertThat("http://127.0.0.1:9800", equalTo(nodes.get(0)));
     }
 }

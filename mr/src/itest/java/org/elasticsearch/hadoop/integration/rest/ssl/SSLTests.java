@@ -41,6 +41,7 @@ import static org.elasticsearch.hadoop.cfg.ConfigurationOptions.*;
 public class SSLTests {
 
     private static int SSL_PORT;
+    private final String PREFIX = "prefixed_path";
 
     @ClassRule
     public static ExternalResource SSL_SERVER = new ExternalResource() {
@@ -75,6 +76,7 @@ public class SSLTests {
         cfg.setProperty(ES_NET_SSL_CERT_ALLOW_SELF_SIGNED, "true");
         cfg.setProperty(ES_NET_SSL_TRUST_STORE_LOCATION, "ssl/client.jks");
         cfg.setProperty(ES_NET_SSL_TRUST_STORE_PASS, "testpass");
+        cfg.setProperty(ES_NODES_PATH_PREFIX, PREFIX);
 
         transport = new CommonsHttpTransport(cfg.copy(), "localhost");
     }
@@ -92,6 +94,17 @@ public class SSLTests {
 
         Response execute = transport.execute(req);
         String content = IOUtils.asString(execute.body());
-        assertEquals(path, content);
+        assertEquals("/" + PREFIX + path, content);
+    }
+
+    @Test
+    public void testBasicSSLHandshakeWithSchema() throws Exception {
+        String uri = "https://localhost:" + SSL_PORT;
+        String path = "/basicSSL";
+        Request req = new SimpleRequest(Method.GET, uri, path);
+
+        Response execute = transport.execute(req);
+        String content = IOUtils.asString(execute.body());
+        assertEquals("/" + PREFIX + path, content);
     }
 }

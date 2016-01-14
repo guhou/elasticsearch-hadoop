@@ -102,30 +102,54 @@ object AbstractScalaEsScalaSparkSQL {
     val list = new ju.ArrayList[Array[jl.Object]]()
     // no query
     val noQuery = ""
-    list.add(Array("default", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, noQuery))
-    list.add(Array("defaultstrict", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, noQuery))
-    list.add(Array("defaultnopush", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, noQuery))
-    list.add(Array("withmeta", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, noQuery))
-    list.add(Array("withmetastrict", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, noQuery))
-    list.add(Array("withmetanopush", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, noQuery))
+    list.add(Array("default", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.TRUE, noQuery))
+    list.add(Array("defaultstrict", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, noQuery))
+    list.add(Array("defaultnopush", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.TRUE, noQuery))
+    list.add(Array("withmeta", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.TRUE, noQuery))
+    list.add(Array("withmetastrict", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, noQuery))
+    list.add(Array("withmetanopush", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.TRUE, noQuery))
+
+    // disable double filtering
+    list.add(Array("default_skiphandled", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, noQuery))
+    list.add(Array("defaultstrict_skiphandled", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, noQuery))
+    list.add(Array("defaultnopush_skiphandled", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, noQuery))
+    list.add(Array("withmeta_skiphandled", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, noQuery))
+    list.add(Array("withmetastrict_skiphandled", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, noQuery))
+    list.add(Array("withmetanopush_skiphandled", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, noQuery))
 
     // uri query
     val uriQuery = "?q=*"
-    list.add(Array("defaulturiquery", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, uriQuery))
-    list.add(Array("defaulturiquerystrict", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, uriQuery))
-    list.add(Array("defaulturiquerynopush", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, uriQuery))
-    list.add(Array("withmetauri_query", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, uriQuery))
-    list.add(Array("withmetauri_querystrict", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, uriQuery))
-    list.add(Array("withmetauri_querynopush", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, uriQuery))
+    list.add(Array("defaulturiquery", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.TRUE, uriQuery))
+    list.add(Array("defaulturiquerystrict", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, uriQuery))
+    list.add(Array("defaulturiquerynopush", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.TRUE, uriQuery))
+    list.add(Array("withmetauri_query", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.TRUE, uriQuery))
+    list.add(Array("withmetauri_querystrict", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, uriQuery))
+    list.add(Array("withmetauri_querynopush", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.TRUE, uriQuery))
+
+    // disable double filtering
+    list.add(Array("defaulturiquery_skiphandled", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, uriQuery))
+    list.add(Array("defaulturiquerystrict_skiphandled", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, uriQuery))
+    list.add(Array("defaulturiquerynopush_skiphandled", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, uriQuery))
+    list.add(Array("withmetauri_query_skiphandled", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, uriQuery))
+    list.add(Array("withmetauri_querystrict_skiphandled", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, uriQuery))
+    list.add(Array("withmetauri_querynopush_skiphandled", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, uriQuery))
 
     // dsl query
     val dslQuery = """ {"query" : { "match_all" : { } } } """
-    list.add(Array("defaultdslquery", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, dslQuery))
-    list.add(Array("defaultstrictdslquery", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, dslQuery))
-    list.add(Array("defaultnopushdslquery", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, dslQuery))
-    list.add(Array("withmetadslquery", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, dslQuery))
-    list.add(Array("withmetastrictdslquery", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, dslQuery))
-    list.add(Array("withmetanopushdslquery", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, dslQuery))
+    list.add(Array("defaultdslquery", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.TRUE, dslQuery))
+    list.add(Array("defaultstrictdslquery", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, dslQuery))
+    list.add(Array("defaultnopushdslquery", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.TRUE, dslQuery))
+    list.add(Array("withmetadslquery", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.TRUE, dslQuery))
+    list.add(Array("withmetastrictdslquery", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, dslQuery))
+    list.add(Array("withmetanopushdslquery", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.TRUE, dslQuery))
+
+    // disable double filtering
+    list.add(Array("defaultdslquery_skiphandled", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, dslQuery))
+    list.add(Array("defaultstrictdslquery_skiphandled", jl.Boolean.FALSE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, dslQuery))
+    list.add(Array("defaultnopushdslquery_skiphandled", jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, dslQuery))
+    list.add(Array("withmetadslquery_skiphandled", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, dslQuery))
+    list.add(Array("withmetastrictdslquery_skiphandled", jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.TRUE, jl.Boolean.FALSE, dslQuery))
+    list.add(Array("withmetanopushdslquery_skiphandled", jl.Boolean.TRUE, jl.Boolean.FALSE, jl.Boolean.FALSE, jl.Boolean.FALSE, dslQuery))
 
     list
   }
@@ -133,14 +157,15 @@ object AbstractScalaEsScalaSparkSQL {
 
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 @RunWith(classOf[Parameterized])
-class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pushDown: jl.Boolean, strictPushDown: jl.Boolean, query: String = "") extends Serializable {
+class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pushDown: jl.Boolean, strictPushDown: jl.Boolean, doubleFiltering: jl.Boolean, query: String = "") extends Serializable {
 
   val sc = AbstractScalaEsScalaSparkSQL.sc
   val sqc = AbstractScalaEsScalaSparkSQL.sqc
   val cfg = Map(ES_QUERY -> query,
                 ES_READ_METADATA -> readMetadata.toString(),
                 "es.internal.spark.sql.pushdown" -> pushDown.toString(),
-                "es.internal.spark.sql.pushdown.strict" -> strictPushDown.toString() )
+                "es.internal.spark.sql.pushdown.strict" -> strictPushDown.toString(),
+                "es.internal.spark.sql.pushdown.keep.handled.filters" -> doubleFiltering.toString())
 
   val datInput = TestUtils.sampleArtistsDat()
 
@@ -225,11 +250,11 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
     |      "level" : 2,
     |      "level3" : true
     |    },
-    |    "foo" : 10,
+    |    "foo2" : 10,
     |    "level" : 1,
     |    "level2" : 2
     |  },
-    |  "foo" : "text",
+    |  "foo1" : "text",
     |  "level" : 0,
     |  "level1" : "string"
     |}
@@ -533,9 +558,9 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
     val target = wrapIndex("spark-test/scala-sql-varcols")
     val table = wrapIndex("sqlvarcol")
 
-    val trip1 = Map("reason" -> "business", "airport" -> "SFO", "tag" -> "jan")
-    val trip2 = Map("participants" -> 5, "airport" -> "OTP", "tag" -> "feb")
-    val trip3 = Map("participants" -> 3, "airport" -> "MUC OTP SFO JFK", "tag" -> "long")
+    val trip1 = Map("reason" -> "business", "airport" -> "SFO", "tag" -> "jan", "date" -> "2015-12-28T20:03:10Z")
+    val trip2 = Map("participants" -> 5, "airport" -> "OTP", "tag" -> "feb", "date" -> "2013-12-28T20:03:10Z")
+    val trip3 = Map("participants" -> 3, "airport" -> "MUC OTP SFO JFK", "tag" -> "long", "date" -> "2012-12-28T20:03:10Z")
 
     sc.makeRDD(Seq(trip1, trip2, trip3)).saveToEs(target)
   }
@@ -558,9 +583,17 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
   def testDataSourcePushDown01EqualTo() {
     val df = esDataSource("pd_equalto")
     val filter = df.filter(df("airport").equalTo("OTP"))
+
+    filter.show
+
     if (strictPushDown) {
       assertEquals(0, filter.count())
       // however if we change the arguments to be lower cased, it will be Spark who's going to filter out the data
+      return
+    }
+    else if (!keepHandledFilters) {
+      // term query pick field with multi values
+      assertEquals(2, filter.count())
       return
     }
 
@@ -572,9 +605,17 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
   def testDataSourcePushDown015NullSafeEqualTo() {
     val df = esDataSource("pd_nullsafeequalto")
     val filter = df.filter(df("airport").eqNullSafe("OTP"))
+
+    filter.show
+
     if (strictPushDown) {
       assertEquals(0, filter.count())
       // however if we change the arguments to be lower cased, it will be Spark who's going to filter out the data
+      return
+    }
+    else if (!keepHandledFilters) {
+      // term query pick field with multi values
+      assertEquals(2, filter.count())
       return
     }
 
@@ -623,7 +664,7 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
     assertEquals("jan", filter.select("tag").take(1)(0)(0))
   }
 
-  @Test
+  //@Test
   def testDataSourcePushDown07IsNotNull() {
     val df = esDataSource("pd_is_not_null")
     val filter = df.filter(df("reason").isNotNull)
@@ -644,6 +685,20 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
 
     assertEquals(2, filter.count())
     assertEquals("jan", filter.select("tag").sort("tag").take(2)(1)(0))
+  }
+
+  @Test
+  def testDataSourcePushDown08InWithNumbersAsStrings() {
+    val df = esDataSource("pd_in_numbers_strings")
+    var filter = df.filter("date IN ('2015-12-28', '2012-12-28')")
+
+    if (strictPushDown) {
+      assertEquals(0, filter.count())
+      // however if we change the arguments to be lower cased, it will be Spark who's going to filter out the data
+      return
+    }
+
+    assertEquals(0, filter.count())
   }
 
   @Test
@@ -673,6 +728,13 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
       return
     }
 
+    if (!keepHandledFilters) {
+      // term query pick field with multi values
+      assertEquals(2, filter.count())
+      return
+    }
+
+    filter.show
     assertEquals(1, filter.count())
     assertEquals("feb", filter.select("tag").take(1)(0)(0))
   }
@@ -687,6 +749,13 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
       return
     }
 
+    if (!keepHandledFilters) {
+      // term query pick field with multi values
+      assertEquals(2, filter.count())
+      return
+    }
+
+    filter.show
     assertEquals(1, filter.count())
     assertEquals("jan", filter.select("tag").take(1)(0)(0))
   }
@@ -717,6 +786,7 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
   def testDataSourcePushDown13Not() {
     val df = esDataSource("pd_not")
     val filter = df.filter(!df("reason").isNull)
+
     assertEquals(1, filter.count())
     assertEquals("jan", filter.select("tag").take(1)(0)(0))
   }
@@ -729,6 +799,12 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
     if (strictPushDown) {
       // OTP fails due to strict matching/analyzed
       assertEquals(1, filter.count())
+      return
+    }
+
+    if (!keepHandledFilters) {
+      // term query pick field with multi values
+      assertEquals(3, filter.count())
       return
     }
 
@@ -964,7 +1040,71 @@ class AbstractScalaEsScalaSparkSQL(prefix: String, readMetadata: jl.Boolean, pus
     assertEquals(3, df.count())
   }
 
+  //@Test
+  def testNestedEmptyArray() {
+    val json = """{"foo" : 5, "nested": { "bar" : [], "what": "now" } }"""
+    val index = wrapIndex("sparksql-test/empty-nested-array")
+    sc.makeRDD(Seq(json)).saveJsonToEs(index)
+    val df = sqc.read.format("es").option("es.field.read.as.array.include", "nested.bar").load(index)
+    println(df.schema)
+    df.explain
+    df.show
+  }
+
+  @Test
+  def testDoubleNestedArray() {
+    val json = """{"foo" : [5,6], "nested": { "bar" : [{"date":"2015-01-01", "scores":[1,2]},{"date":"2015-01-01", "scores":[3,4]}], "what": "now" } }"""
+    val index = wrapIndex("sparksql-test/double-nested-array")
+    sc.makeRDD(Seq(json)).saveJsonToEs(index)
+    val df = sqc.read.format("es").option("es.field.read.as.array.include", "nested.bar,foo,nested.bar.scores").load(index)
+    println(df.schema)
+    df.explain
+    df.show
+  }
+
+  //@Test
+  def testArrayExcludes() {
+    val json = """{"foo" : [5,6], "nested": { "bar" : [{"date":"2015-01-01", "scores":[1,2]},{"date":"2015-01-01", "scores":[3,4]}], "what": "now" } }"""
+    val index = wrapIndex("sparksql-test/nested-array-exclude")
+    sc.makeRDD(Seq(json)).saveJsonToEs(index)
+    val df = sqc.read.format("es").option("es.read.field.exclude", "nested.bar").load(index)
+    println(df.schema.treeString)
+    df.explain
+    df.show
+  }
+
+  //@Test
+  def testGeoShape() {
+    val json = """{"rect":{"type":"multipoint","coordinates":[[[50,32],[69,32],[69,50],[50,50],[50,32]]]}}"""
+    val index = wrapIndex("sparksql-test/geoshape")
+    sc.makeRDD(Seq(json)).saveJsonToEs(index)
+    val df = sqc.read.format("es").load(index)
+    println(df.schema.treeString)
+    df.show
+  }
+
+  @Test
+  def testMultiIndexes() {
+    // add some data
+    val jsonDoc = """{"artist" : "buckethead", "album": "mirror realms" }"""
+    val index1 = wrapIndex("sparksql-multi-index-1/doc")
+    val index2 = wrapIndex("sparksql-multi-index-2/doc")
+    sc.makeRDD(Seq(jsonDoc)).saveJsonToEs(index1)
+    sc.makeRDD(Seq(jsonDoc)).saveJsonToEs(index2)
+    RestUtils.refresh(wrapIndex("sparksql-multi-index-1"))
+    RestUtils.refresh(wrapIndex("sparksql-multi-index-2"))
+    val multiIndex = wrapIndex("sparksql-multi-index-1,") + index2
+    val df = sqc.read.format("es").load(multiIndex)
+    df.show
+    println(df.selectExpr("count(*)").show(5))
+    assertEquals(2, df.count())
+  }
+
   def wrapIndex(index: String) = {
     prefix + index
+  }
+
+  private def keepHandledFilters = {
+    !pushDown || (pushDown && doubleFiltering)
   }
 }
