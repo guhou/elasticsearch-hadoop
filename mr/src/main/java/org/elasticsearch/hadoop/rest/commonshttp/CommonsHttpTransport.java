@@ -19,22 +19,32 @@
 package org.elasticsearch.hadoop.rest.commonshttp;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.net.Socket;
-import java.net.URL;
-import java.util.*;
 
-import org.apache.commons.httpclient.*;
+import org.apache.commons.httpclient.DefaultHttpMethodRetryHandler;
+import org.apache.commons.httpclient.HostConfiguration;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.HttpConnection;
+import org.apache.commons.httpclient.HttpConnectionManager;
+import org.apache.commons.httpclient.HttpMethod;
+import org.apache.commons.httpclient.HttpState;
+import org.apache.commons.httpclient.HttpStatus;
+import org.apache.commons.httpclient.SimpleHttpConnectionManager;
+import org.apache.commons.httpclient.URI;
+import org.apache.commons.httpclient.URIException;
+import org.apache.commons.httpclient.UsernamePasswordCredentials;
 import org.apache.commons.httpclient.auth.AuthScope;
 import org.apache.commons.httpclient.methods.EntityEnclosingMethod;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.methods.HeadMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
 import org.apache.commons.httpclient.methods.PutMethod;
-import org.apache.commons.httpclient.params.*;
+import org.apache.commons.httpclient.params.HttpClientParams;
+import org.apache.commons.httpclient.params.HttpConnectionManagerParams;
+import org.apache.commons.httpclient.params.HttpMethodParams;
 import org.apache.commons.httpclient.protocol.Protocol;
 import org.apache.commons.httpclient.protocol.ProtocolSocketFactory;
 import org.apache.commons.httpclient.protocol.SecureProtocolSocketFactory;
@@ -145,8 +155,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
     public CommonsHttpTransport(Settings settings, String host) {
         this.settings = settings;
         httpInfo = host;
-        HttpClientParams params = new HttpClientParams();
 
+        HttpClientParams params = new HttpClientParams();
         params.setParameter(HttpMethodParams.RETRY_HANDLER, new DefaultHttpMethodRetryHandler(
                 settings.getHttpRetries(), false) {
 
@@ -415,75 +425,9 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             log.trace(String.format("Tx %s[%s]@[%s][%s] w/ payload [%s]", proxyInfo, request.method().name(), httpInfo, request.path(), request.body()));
         }
 
-        boolean sign = settings.getProperty("es.aws.sign") == null ?
-                false :
-                Boolean.parseBoolean(settings.getProperty("es.aws.sign"));
-
-        HostConfiguration hostConfig = new HostConfiguration();
-        if (sign) {
-            String accessKey = settings.getProperty("awsAccessKeyId");
-            String secretKey = settings.getProperty("awsSecretAccessKey");
-            String region = settings.getProperty("es.aws.region");
-            String host = settings.getProperty("es.nodes");
-            hostConfig.setHost(host);
-            Date date = Calendar.getInstance().getTime();
-            //Date date = new Date(1450437271663L);
-
-
-            ArrayList<AbstractMap.SimpleEntry<String, String>> headerList = new ArrayList<AbstractMap.SimpleEntry<String, String>>();
-            http.setRequestHeader(new Header("Host", host));
-//            String httpClientString = new DefaultHttpParamsFactory().getDefaultParams().getParameter(HttpMethodParams.USER_AGENT).toString();
-//            http.setRequestHeader(new Header("User-Agent", httpClientString));
-            for (Header h: http.getRequestHeaders()) {
-                headerList.add(new AbstractMap.SimpleEntry<String, String>(h.getName(), h.getValue()));
-            }
-
-            ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
-            byte[] payload;
-            try {
-                request.body().writeTo(byteStream);
-                payload = byteStream.toByteArray();
-            } catch (Exception e) {
-                payload = new byte[]{};
-            }
-
-            ArrayList<AbstractMap.SimpleEntry<String, String>> queryList = new  ArrayList<AbstractMap.SimpleEntry<String, String>>();
-            if (request.params() != null) {
-                queryList = AwsSigner.splitQuery(String.valueOf(request.params()));
-            }
-            String authHeader = "";
-            try {
-                authHeader = AwsSigner.getAuthHeader(
-                        accessKey,
-                        secretKey,
-                        date,
-                        region,
-                        "es",
-                        request.method().name(),
-                        uri.toString(),
-                        headerList,
-                        queryList,
-                        payload
-                );
-                System.out.println(authHeader);
-            } catch(Exception e) {
-                log.error(e.getMessage());
-            }
-            ArrayList<Header> authHeaders = new ArrayList<Header>();
-            authHeaders.add(new Header("Authorization", authHeader));
-            authHeaders.add(new Header("X-Amz-Date", AwsSigner.formatDateTime(date)));
-            HostParams hostParams = new HostParams();
-            hostParams.setParameter(HostParams.DEFAULT_HEADERS, authHeaders);
-            hostConfig.setParams(hostParams);
-        }
-
         long start = System.currentTimeMillis();
         try {
-            if (sign) {
-                client.executeMethod(hostConfig, http);
-            } else {
-                client.executeMethod(http);
-            }
+            client.executeMethod(http);
         } finally {
             stats.netTotalTime += (System.currentTimeMillis() - start);
         }
