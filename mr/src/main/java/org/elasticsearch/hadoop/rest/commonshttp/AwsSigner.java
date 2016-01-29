@@ -111,8 +111,7 @@ public class AwsSigner {
                 getCanonicalQueryString(queryMap) + "\n" +
                 getCanonicalHeaders(headerMap) + "\n" +
                 getSignedHeaders(headerMap) + "\n" +
-                U.base16(hashSHA256(requestPayload));
-        System.out.println(canonical);
+                U.base16(hashSHA256(requestPayload));       
         return canonical;
 
     }
