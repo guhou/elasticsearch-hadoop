@@ -23,15 +23,21 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.elasticsearch.hadoop.cfg.Settings;
+import org.elasticsearch.hadoop.rest.EsHadoopParsingException;
 import org.elasticsearch.hadoop.serialization.Parser.NumberType;
 import org.elasticsearch.hadoop.serialization.Parser.Token;
 import org.elasticsearch.hadoop.serialization.builder.ValueParsingCallback;
 import org.elasticsearch.hadoop.serialization.builder.ValueReader;
 import org.elasticsearch.hadoop.serialization.dto.mapping.Field;
+import org.elasticsearch.hadoop.serialization.dto.mapping.MappingUtils;
+import org.elasticsearch.hadoop.serialization.field.FieldFilter;
+import org.elasticsearch.hadoop.serialization.field.FieldFilter.NumberedInclude;
 import org.elasticsearch.hadoop.serialization.json.JacksonJsonParser;
 import org.elasticsearch.hadoop.util.Assert;
 import org.elasticsearch.hadoop.util.BytesArray;
@@ -141,6 +147,46 @@ public class ScrollReader {
         }
     }
 
+    public static class ScrollReaderConfig {
+        public ValueReader reader;
+
+        public boolean readMetadata;
+        public String metadataName;
+        public boolean returnRawJson;
+        public boolean ignoreUnmappedFields;
+        public List<String> includeFields;
+        public List<String> excludeFields;
+        public Field rootField;
+
+        public ScrollReaderConfig(ValueReader reader, Field rootField, boolean readMetadata, String metadataName,
+                boolean returnRawJson, boolean ignoreUnmappedFields, List<String> includeFields,
+                List<String> excludeFields) {
+            super();
+            this.reader = reader;
+            this.readMetadata = readMetadata;
+            this.metadataName = metadataName;
+            this.returnRawJson = returnRawJson;
+            this.ignoreUnmappedFields = ignoreUnmappedFields;
+            this.includeFields = includeFields;
+            this.excludeFields = excludeFields;
+            this.rootField = rootField;
+        }
+
+        public ScrollReaderConfig(ValueReader reader, Field rootField, boolean readMetadata, String metadataName, boolean returnRawJson, boolean ignoreUnmappedFields) {
+            this(reader, rootField, readMetadata, metadataName, returnRawJson, ignoreUnmappedFields, Collections.<String> emptyList(), Collections.<String> emptyList());
+        }
+
+        public ScrollReaderConfig(ValueReader reader) {
+            this(reader, null, false, "_metadata", false, false, Collections.<String> emptyList(), Collections.<String> emptyList());
+        }
+
+        public ScrollReaderConfig(ValueReader reader, Field field, Settings cfg) {
+            this(reader, field, cfg.getReadMetadata(), cfg.getReadMetadataField(),
+                    cfg.getOutputAsJson(), cfg.getReadMappingMissingFieldsIgnore(),
+                    StringUtils.tokenize(cfg.getReadFieldInclude()), StringUtils.tokenize(cfg.getReadFieldExclude()));
+        }
+    }
+
     private static final Log log = LogFactory.getLog(ScrollReader.class);
 
     private Parser parser;
@@ -151,21 +197,39 @@ public class ScrollReader {
     private final boolean readMetadata;
     private final String metadataField;
     private final boolean returnRawJson;
+    private final boolean ignoreUnmappedFields;
+
+    private boolean insideGeo = false;
+
+    private final List<NumberedInclude> includeFields;
+    private final List<String> excludeFields;
 
     private static final String[] SCROLL_ID = new String[] { "_scroll_id" };
     private static final String[] HITS = new String[] { "hits" };
-    private static final String[] ID = new String[] { "_id" };
+    private static final String ID_FIELD = "_id";
+    private static final String[] ID = new String[] { ID_FIELD };
     private static final String[] FIELDS = new String[] { "fields" };
     private static final String[] SOURCE = new String[] { "_source" };
     private static final String[] TOTAL = new String[] { "hits", "total" };
 
-    public ScrollReader(ValueReader reader, Field rootField, boolean readMetadata, String metadataName, boolean returnRawJson) {
-        this.reader = reader;
+    public ScrollReader(ScrollReaderConfig scrollConfig) {
+        this.reader = scrollConfig.reader;
         this.parsingCallback = (reader instanceof ValueParsingCallback ?  (ValueParsingCallback) reader : null);
-        this.esMapping = Field.toLookupMap(rootField);
-        this.readMetadata = readMetadata;
-        this.metadataField = metadataName;
-        this.returnRawJson = returnRawJson;
+        
+        this.readMetadata = scrollConfig.readMetadata;
+        this.metadataField = scrollConfig.metadataName;
+        this.returnRawJson = scrollConfig.returnRawJson;
+        this.ignoreUnmappedFields = scrollConfig.ignoreUnmappedFields;
+        this.includeFields = FieldFilter.toNumberedFilter(scrollConfig.includeFields);
+        this.excludeFields = scrollConfig.excludeFields;
+
+        Field mapping = scrollConfig.rootField;
+        // optimize filtering
+        if (ignoreUnmappedFields) {
+            mapping = MappingUtils.filter(mapping, scrollConfig.includeFields, scrollConfig.excludeFields);
+        }
+        
+        this.esMapping = Field.toLookupMap(mapping);
     }
 
     public Scroll read(InputStream content) throws IOException {
@@ -336,24 +400,34 @@ public class ScrollReader {
 
             metadata = reader.createMap();
             result[1] = metadata;
-            String name;
+            String absoluteName;
 
             // move parser
             t = parser.nextToken();
             while ((t = parser.currentToken()) != null) {
-                name = parser.currentName();
+                String name = parser.currentName();
+                absoluteName = StringUtils.stripFieldNameSourcePrefix(parser.absoluteName());
                 Object value = null;
-                if (t == Token.FIELD_NAME && !("fields".equals(name) || "_source".equals(name))) {
-                    value = read(parser.nextToken(), null);
-                    if ("_id".equals(name)) {
-                        id = value;
-                    }
 
-                    reader.addToMap(metadata, reader.wrapString(name), value);
+                if (t == Token.FIELD_NAME) {
+                    if (!("fields".equals(name) || "_source".equals(name))) {
+                        reader.beginField(absoluteName);
+                        value = read(absoluteName, parser.nextToken(), null);
+                        if (ID_FIELD.equals(name)) {
+                            id = value;
+                        }
+
+                        reader.addToMap(metadata, reader.wrapString(name), value);
+                        reader.endField(absoluteName);
+                    }
+                    else {
+                        t = parser.nextToken();
+                        break;
+                    }
                 }
                 else {
                     // if = no _source or field found, else select START_OBJECT
-                    t = (t != Token.FIELD_NAME) ? null : parser.nextToken();
+                    t = null;
                     break;
                 }
             }
@@ -380,7 +454,7 @@ public class ScrollReader {
                 parsingCallback.beginSource();
             }
 
-            data = read(t, null);
+            data = read(StringUtils.EMPTY, t, null);
 
             if (parsingCallback != null) {
                 parsingCallback.endSource();
@@ -408,8 +482,9 @@ public class ScrollReader {
         // in case of additional fields (matched_query), add them to the metadata
         while (parser.currentToken() == Token.FIELD_NAME) {
             String name = parser.currentName();
+            String absoluteName = StringUtils.stripFieldNameSourcePrefix(parser.absoluteName());
             if (readMetadata) {
-                reader.addToMap(data, reader.wrapString(name), read(parser.nextToken(), null));
+                reader.addToMap(data, reader.wrapString(name), read(absoluteName, parser.nextToken(), null));
             }
             else {
                 parser.nextToken();
@@ -435,6 +510,22 @@ public class ScrollReader {
         return result;
     }
 
+    private boolean shouldSkip(String absoluteName) {
+        // when parsing geo structures, ignore filtering as depending on the
+        // type, JSON can have an object structure
+        // especially for geo shapes
+        if (insideGeo) {
+            return false;
+        }
+        // if ignoring unmapped fields, the filters are already applied
+        if (ignoreUnmappedFields) {
+            return !esMapping.containsKey(absoluteName);
+        }
+        else {
+            return !FieldFilter.filter(absoluteName, includeFields, excludeFields).matched;
+        }
+    }
+
     private Object[] readHitAsJson() {
         // return results as raw json
 
@@ -450,6 +541,7 @@ public class ScrollReader {
             result[1] = snippet;
 
             String name;
+            String absoluteName;
 
             t = parser.nextToken();
             // move parser
@@ -459,11 +551,18 @@ public class ScrollReader {
 
             while ((t = parser.currentToken()) != null) {
                 name = parser.currentName();
+                absoluteName = StringUtils.stripFieldNameSourcePrefix(parser.absoluteName());
+
                 if (t == Token.FIELD_NAME) {
-                    if ("_id".equals(name)) {
+                    if (ID_FIELD.equals(name)) {
+
+                        reader.beginField(absoluteName);
+
                         t = parser.nextToken();
                         id = reader.wrapString(parser.text());
                         endCharOfLastElement = parser.tokenCharOffset();
+
+                        reader.endField(absoluteName);
                         t = parser.nextToken();
                     }
                     else if ("fields".equals(name) || "_source".equals(name)) {
@@ -499,7 +598,12 @@ public class ScrollReader {
         // no metadata is needed, fast fwd
         else {
             Assert.notNull(ParsingUtils.seek(parser, ID), "no id found");
+
+            String absoluteName = StringUtils.stripFieldNameSourcePrefix(parser.absoluteName());
+            reader.beginField(absoluteName);
             result[0] = reader.wrapString(parser.text());
+            reader.endField(absoluteName);
+
             t = ParsingUtils.seek(parser, SOURCE, FIELDS);
         }
 
@@ -578,9 +682,9 @@ public class ScrollReader {
         return hits;
     }
 
-    protected Object read(Token t, String fieldMapping) {
+    protected Object read(String fieldName, Token t, String fieldMapping) {
         if (t == Token.START_ARRAY) {
-            return list(fieldMapping);
+            return list(fieldName, fieldMapping);
         }
 
         // handle nested nodes first
@@ -590,7 +694,12 @@ public class ScrollReader {
         FieldType esType = mapping(fieldMapping);
 
         if (t.isValue()) {
-            return parseValue(esType);
+            String rawValue = parser.text();
+            try {
+                return parseValue(esType);
+            } catch (Exception ex) {
+                throw new EsHadoopParsingException(String.format(Locale.ROOT, "Cannot parse value [%s] for field [%s]", rawValue, fieldName), ex);
+            }
         }
         return null;
     }
@@ -608,7 +717,7 @@ public class ScrollReader {
         return obj;
     }
 
-    protected Object list(String fieldMapping) {
+    protected Object list(String fieldName, String fieldMapping) {
         Token t = parser.currentToken();
 
         if (t == null) {
@@ -622,7 +731,7 @@ public class ScrollReader {
         // create only one element since with fields, we always get arrays which create unneeded allocations
         List<Object> content = new ArrayList<Object>(1);
         for (; parser.currentToken() != Token.END_ARRAY;) {
-            content.add(read(parser.currentToken(), fieldMapping));
+            content.add(read(fieldName, parser.currentToken(), fieldMapping));
         }
 
         // eliminate END_ARRAY
@@ -642,6 +751,18 @@ public class ScrollReader {
             t = parser.nextToken();
         }
 
+        boolean toggleGeo = false;
+        
+        if (fieldMapping != null) {
+            // parse everything underneath without mapping
+            if (FieldType.isGeo(mapping(fieldMapping))) {
+                toggleGeo = true;
+                insideGeo = true;
+                if (parsingCallback != null) {
+                    parsingCallback.beginGeoField();
+                }
+            }
+        }
         Object map = reader.createMap();
 
         for (; parser.currentToken() != Token.END_OBJECT;) {
@@ -655,10 +776,32 @@ public class ScrollReader {
                 nodeMapping = currentName;
             }
 
-            // Must point to field name
-            Object fieldName = reader.readValue(parser, currentName, FieldType.STRING);
-            // And then the value...
-            reader.addToMap(map, fieldName, read(parser.nextToken(), nodeMapping));
+            String absoluteName = StringUtils.stripFieldNameSourcePrefix(parser.absoluteName());
+
+            if (!absoluteName.equals(nodeMapping)) {
+                throw new EsHadoopParsingException("Different node mapping " + absoluteName + "|" + nodeMapping);
+            }
+
+            if (shouldSkip(absoluteName)) {
+                skipCurrentBlock();
+            }
+            else {
+                reader.beginField(absoluteName);
+
+                // Must point to field name
+                Object fieldName = reader.readValue(parser, currentName, FieldType.STRING);
+                // And then the value...
+                reader.addToMap(map, fieldName, read(absoluteName, parser.nextToken(), nodeMapping));
+                reader.endField(absoluteName);
+            }
+        }
+
+        // geo field finished, returning
+        if (toggleGeo) {
+            insideGeo = false;
+            if (parsingCallback != null) {
+                parsingCallback.endGeoField();
+            }
         }
 
         // eliminate END_OBJECT

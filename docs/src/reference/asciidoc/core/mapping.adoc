@@ -18,7 +18,12 @@ Instead of 'reinventing the wheel' and replicating functionality, {eh} focuses o
 [[mapping-date]]
 === Time/Date mapping
 
-When it comes to handling dates, {es} always uses the http://en.wikipedia.org/wiki/ISO_8601[ISO 8601] format for date/time. This is the default date format of {es} - if a custom one is needed, please *add* it to the default option rather then just replacing it. See the {ref}/mapping-date-format.html[date format] section in {eh} reference documentation for more information.
+When it comes to handling dates, {es} always uses the http://en.wikipedia.org/wiki/ISO_8601[ISO 8601] format for date/time. This is the default date format of {es} - if a custom one is needed, please *add* it to the default option rather then just replacing it. See the {ref}/mapping-date-format.html[date format] section in {es} reference documentation for more information.
+Note that when reading data, if the date is not in ISO8601 format, by default {eh} will likely not understand it as it does not replicate the elaborate date parsing in {es}. In these cases one can simply disable the date conversion
+and pass the raw information as a `long` or `String`, through the `es.mapping.rich.date` <<cfg-field-info, property>>.
+
+As a side note, {eh} tries to detect whether dedicated date parsing libraries (in particular Joda, used also by {es}) are available at runtime and if so, will use them. If not, it will default to parsing using JDK classes which are not
+as rich. Going forward especially with the advent of JDK 8, {eh} will try to migrate to `javax.time` library to have the same behaviour regardless of the classpath available at runtime.
 
 [float]
 [[mapping-arrays]]
@@ -27,6 +32,21 @@ When it comes to handling dates, {es} always uses the http://en.wikipedia.org/wi
 It is important to note that JSON objects (delimited by `{}` and typically associated with maps) are *unordered*, in other words, they do *not* maintain order. JSON
 arrays (typically associated with lists or sequences) are *ordered*, that is, they *do* preserve the initial insertion order. This impacts the way objects are read from {es} as one might find the insertion structure to be different than the extraction one.
 It is however easy to circumvent this problem - as JSON objects (maps) contain fields, use the field names (or keys) instead of their position inside the document to reliably get their values (in Java terms think of a JSON object as a +HashMap+ as oppose to a +LinkedHashMap+).
+
+[float]
+[[mapping-geo]]
+=== Geo types
+
+For geolocation {es} provides two dedicated types, namely https://www.elastic.co/guide/en/elasticsearch/reference/2.1/geo-point.html[+geo_point+] and https://www.elastic.co/guide/en/elasticsearch/reference/2.1/geo-shape.html[+geo_shape+]
+which do not have a direct equivalent in any of the libraries {eh} integrates with. Further more, {es} accepts multiple formats for each type (as there are different ways to represent data), in fact there are 4 different representations
+for +geo_point+ and 9 for +geo_shape+.
+To go around this, the connector breaks down the geo types into primitives depending on the actual format used for their respective types. 
+
+For strongly-typed libraries (like SparkSQL ++DataFrame++s), the format needs to be known before hand and thus, {eh} will _sample_ the data asking {eh} for one random document that is representative of the mapping, parse it and based
+on the values found, identify the format used and create the necessary schema. This happens automatically at start-up without any user interference. As always, the user data must all be using the _same_ format (a requirement from
+SparkSQL) otherwise reading a different format will trigger an exception.
+
+Note that typically handling of these types poses no issues for the user whether reading or writing data.
 
 [float]
 [[mapping-multi-values]]

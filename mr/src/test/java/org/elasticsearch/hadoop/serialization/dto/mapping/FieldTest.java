@@ -27,16 +27,19 @@ import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
 import org.elasticsearch.hadoop.serialization.FieldType;
 import org.junit.Test;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 
 
 public class FieldTest {
 
     @Test
     public void testNestedObjectParsing() throws Exception {
-        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("nested.json"), Map.class);
+        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("multi_level_field_with_same_name.json"), Map.class);
         Field fl = Field.parseField(value);
         assertEquals("artiststimestamp", fl.name());
         Field[] properties = fl.properties();
@@ -92,6 +95,18 @@ public class FieldTest {
     }
 
     @Test
+    public void testGeoParsingWithOptions() throws Exception {
+        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("geo.json"), Map.class);
+        Field fl = Field.parseField(value);
+        System.out.println(fl);
+        assertEquals("restaurant", fl.name());
+        Field[] props = fl.properties();
+        assertEquals(1, props.length);
+        assertEquals("location", props[0].name());
+        assertEquals(FieldType.GEO_POINT, props[0].type());
+    }
+
+    @Test
     public void testCompletionParsing() throws Exception {
         Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("completion.json"), Map.class);
         Field fl = Field.parseField(value);
@@ -99,13 +114,6 @@ public class FieldTest {
         Field[] props = fl.properties();
         assertEquals(1, props.length);
         assertEquals("name", props[0].name());
-    }
-
-    @Test
-    public void testGeolocationParsing() throws Exception {
-        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("geo.json"), Map.class);
-        Field fl = Field.parseField(value);
-        assertEquals(1, fl.properties().length);
     }
 
     @Test
@@ -125,7 +133,7 @@ public class FieldTest {
 
     @Test
     public void testFieldValidation() throws Exception {
-        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("nested.json"), Map.class);
+        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("multi_level_field_with_same_name.json"), Map.class);
         Field fl = Field.parseField(value);
 
         List<String>[] findFixes = MappingUtils.findTypos(Collections.singletonList("nam"), fl);
@@ -146,7 +154,7 @@ public class FieldTest {
 
     @Test
     public void testFieldInclude() throws Exception {
-        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("nested.json"), Map.class);
+        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("multi_level_field_with_same_name.json"), Map.class);
         Field fl = Field.parseField(value);
 
         Field filtered = MappingUtils.filter(fl, Collections.singleton("*a*e"), Collections.<String> emptyList());
@@ -178,5 +186,27 @@ public class FieldTest {
         assertThat(props[1].name(), is("nested"));
         assertThat(props[1].properties().length, is(1));
         assertThat(props[1].properties()[0].name(), is("what"));
+    }
+
+    @Test
+    public void testNestedMapping() throws Exception {
+        Map value = new ObjectMapper().readValue(getClass().getResourceAsStream("nested-mapping.json"), Map.class);
+        Field fl = Field.parseField(value);
+
+        assertEquals("company", fl.name());
+        Field[] properties = fl.properties();
+        assertEquals(3, properties.length);
+        Field first = properties[0];
+        assertEquals("name", first.name());
+        assertEquals(FieldType.STRING, first.type());
+        Field second = properties[1];
+        assertEquals("description", second.name());
+        assertEquals(FieldType.STRING, second.type());
+        Field nested = properties[2];
+        assertEquals("employees", nested.name());
+        assertEquals(FieldType.NESTED, nested.type());
+        Field[] nestedProps = nested.properties();
+        assertEquals("name", nestedProps[0].name());
+        assertEquals(FieldType.LONG, nestedProps[1].type());
     }
 }

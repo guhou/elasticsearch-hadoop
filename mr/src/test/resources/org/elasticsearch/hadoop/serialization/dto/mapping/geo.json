@@ -1,10 +1,14 @@
 {
-    "restaurant" : {
-        "properties" : {
-            "location" : {
-                "type" : "point",
-                "coordinates" : [45.0, -45.0]
-            }
-        }
-    }
+	"restaurant" : {
+		"properties" : {
+			"location" : {
+				"type" : "geo_point",
+				"normalize" : true,
+				"fielddata" : {
+					"format" : "compressed",
+					"precision" : "1cm"
+				}
+			}
+		}
+	}
 }

@@ -26,7 +26,7 @@ es.resource = twitter/tweet   # index 'twitter', type 'tweet'
 `es.resource.write`(defaults to `es.resource`)::
 {es} resource used for writing (but not reading) data. Used typically for __dynamic resource__ writes or when writing and reading data to different {es} indices within the _same_ job. Typically set automatically (expect for the {mr} module which requires manual configuration).
 
-Note that [multiple](https://www.elastic.co/guide/en/elasticsearch/guide/current/multi-index-multi-type.html) indices and/or types are allowed *only* for reading. Use `_all/types` to search `types` in all indices or `index/` to search
+Note that https://www.elastic.co/guide/en/elasticsearch/guide/current/multi-index-multi-type.html[multiple] indices and/or types are allowed *only* for reading. Use `_all/types` to search `types` in all indices or `index/` to search
 all types within `index`.
 Do note that reading multiple indices/types typically works only when the have the same structure and only with some libraries. Integrations that require a strongly type mapping (such as a table like Hive or SparkSQL) are likely to fail.
 
@@ -157,6 +157,12 @@ The write operation {eh} should peform - can be any of:
 `update`;; updates existing data (based on its id). If no data is found, an exception is thrown.
 `upsert`;; known as _merge_ or insert if the data does not exist, updates if the data exists (based on its id).
 
+added[2.1]
+`es.output.json` (default false)::
+Whether the output from the connector should be in JSON format or not (the default). When enabled, the documents are returned in raw JSON format (as returned
+from {es}). Please see the appropriate section of each integration for more details about using JSON directly.
+
+
 [float]
 [[cfg-mapping]]
 ==== Mapping (when writing to {es})
@@ -239,6 +245,9 @@ For example:
 ----
 # mapping nested.bar as an array
 es.field.read.as.array.include = nested.bar
+
+# mapping nested.bar as an 3-levels/dimensions array
+es.field.read.as.array.include = nested.bar:3
 ----
 
 `es.field.read.as.array.exclude` (default empty)::
@@ -436,7 +445,7 @@ Name of the `ValueReader` implementation for converting JSON to objects. This is
 Name of the `ValueWriter` implementation for converting objects to JSON. This is set by the framework depending on the library ({mr}, Cascading, Hive, Pig, etc...) used.
 
 [[configuration-runtime]]
-== Hadoop Map/Reduce runtime options
+== Runtime options
 
 When using {eh}, it is important to be aware of the following Hadoop configurations that can influence the way Map/Reduce tasks are executed and in return {eh}.
 
@@ -452,6 +461,11 @@ ____
 
 In other words, speculative execution is an *optimization*, enabled by default, that allows Hadoop to create duplicates tasks of those which it considers hanged or slowed down. When doing data crunching or reading resources, having duplicate tasks is harmless and means at most a waste of computation resources; however when writing data to an external store, this can cause data corruption through duplicates or unnecessary updates.
 Since the 'speculative execution' behavior can be triggered by external factors (such as network or CPU load which in turn cause false positive) even in stable environments (virtualized clusters are particularly prone to this) and has a direct impact on data, {eh} disables this optimization for data safety.
+
+Please check your library setting and disable this feature. If you encounter more data then expected, double and triple check this setting.
+
+[float]
+==== Disabling Map/Reduce speculative execution
 
 Speculative execution can be disabled for the map and reduce phase - we recommend disabling in both cases - by setting to `false` the following two properties:
 
@@ -475,6 +489,24 @@ or by passing them as arguments to the command line:
 $ bin/hadoop jar -Dmapred.map.tasks.speculative.execution=false \
                  -Dmapred.reduce.tasks.speculative.execution=false <jar>
 ----
+
+[float]
+==== Hive speculative execution
+
+Apache Hive has its own setting for speculative execution through namely `hive.mapred.reduce.tasks.speculative.execution`. It is enabled by default so do change it to `false` in your scripts:
+
+[source,sql]
+----
+set hive.mapred.reduce.tasks.speculative.execution=false;
+----
+
+Note that while the setting has been deprecated in Hive 0.10 and one might get a warning, double check that the speculative execution is actually disabled.
+
+[float]
+==== Spark speculative execution
+
+Out of the box, Spark has speculative execution disable. Double check this is the case through `spark.speculation` setting (`false` disabled it, `true` to enable it).
+
 
 [[security]]
 == Security

@@ -38,23 +38,15 @@ public enum FieldType {
     BINARY,
     TOKEN_COUNT,
 
+    GEO_POINT,
+    GEO_SHAPE,
+
     // compound types
     OBJECT,
-    MULTI_FIELD,
-
     NESTED,
 
     // not supported yet
     IP,
-
-    GEO_POINT,
-    GEO_SHAPE,
-    POINT,
-    LINESTRING,
-    POLYGON,
-    MULTIPOINT,
-    MULTIPOLYGON,
-    ENVELOPE,
 
     // ignored
     COMPLETION;
@@ -80,18 +72,14 @@ public enum FieldType {
             return false;
         }
 
-        // types without a special hadoop type - they'll get translated to a string
-        if (IP == fieldType ||
-                GEO_POINT == fieldType || GEO_SHAPE == fieldType ||
-                POINT == fieldType || LINESTRING == fieldType || POLYGON == fieldType ||
-                MULTIPOINT == fieldType || MULTIPOLYGON == fieldType || ENVELOPE == fieldType) {
-            return true;
-        }
-
-        //        if (NESTED == fieldType) {
-        //            throw new UnsupportedOperationException("Nested fields not supported yet...");
-        //        }
-
         return true;
+    }
+
+    public static boolean isCompound(FieldType fieldType) {
+        return (OBJECT == fieldType || NESTED == fieldType);
+    }
+
+    public static boolean isGeo(FieldType fieldType) {
+        return (GEO_POINT == fieldType || GEO_SHAPE == fieldType);
     }
 }

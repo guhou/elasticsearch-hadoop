@@ -21,14 +21,7 @@ package org.elasticsearch.hadoop.rest;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
 
 import org.codehaus.jackson.JsonParser;
@@ -173,7 +166,7 @@ public class RestClient implements Closeable, StatsAware {
     }
 
     @SuppressWarnings("rawtypes")
-    private boolean retryFailedEntries(Response response, TrackingBytesArray data) {
+    boolean retryFailedEntries(Response response, TrackingBytesArray data) {
         InputStream content = response.body();
         try {
             ObjectReader r = JsonFactory.objectReader(mapper, Map.class);
@@ -197,7 +190,7 @@ public class RestClient implements Closeable, StatsAware {
 
                 String error = extractError(values);
                 if (error != null) {
-                    if (status != null && HttpStatus.canRetry(status) || error.contains("EsRejectedExecutionException")) {
+                    if ((status != null && HttpStatus.canRetry(status)) || error.contains("EsRejectedExecutionException")) {
                         entryToDeletePosition++;
                     }
                     else {
@@ -349,6 +342,53 @@ public class RestClient implements Closeable, StatsAware {
     public Map<String, Object> getMapping(String query) {
         return (Map<String, Object>) get(query, null);
     }
+    
+    public Map<String, Object> sampleForFields(String indexAndType, Collection<String> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("{ \"terminate_after\":1, \"size\":1,\n");
+        // use source since some fields might be objects
+        sb.append("\"_source\": [");
+        for (String field : fields) {
+            sb.append(String.format(Locale.ROOT, "\"%s\",", field));
+        }
+        // remove trailing ,
+        sb.setLength(sb.length() - 1);
+        sb.append("],\n\"query\":{");
+
+        if (isES20) {
+            sb.append("\"bool\": { \"must\":[");
+        }
+        else {
+            sb.append("\"constant_score\":{ \"filter\": { \"and\":[");
+
+        }
+        for (String field: fields) {
+            sb.append(String.format(Locale.ROOT, "\n{ \"exists\":{ \"field\":\"%s\"} },", field));
+        }
+        // remove trailing ,
+        sb.setLength(sb.length() - 1);
+        sb.append("\n]}");
+
+        if (!isES20) {
+            sb.append("}");
+        }
+
+        sb.append("}}");
+        
+        Map<String, List<Map<String, Object>>> hits = parseContent(execute(GET, indexAndType + "/_search", new BytesArray(sb.toString())).body(), "hits");
+        List<Map<String, Object>> docs = hits.get("hits");
+        if (docs == null || docs.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> foundFields = docs.get(0);
+        Map<String, Object> fieldInfo = (Map<String, Object>) foundFields.get("_source");
+        
+        return fieldInfo;
+    }
 
     @Override
     public void close() {
@@ -407,13 +447,13 @@ public class RestClient implements Closeable, StatsAware {
             String msg = null;
             // try to parse the answer
             try {
-               msg = extractError(this.<Map> parseContent(response.body(), null));
-               if (response.isClientError()) {
+                msg = extractError(this.<Map> parseContent(response.body(), null));
+                if (response.isClientError()) {
                     msg = msg + "\n" + request.body();
-               }
-               else {
-                   msg = prettify(msg, request.body());
-               }
+                }
+                else {
+                    msg = prettify(msg, request.body());
+                }
             } catch (Exception ex) {
                 // can't parse message, move on
             }
