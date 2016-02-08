@@ -288,7 +288,7 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                     // client is not yet initialized so simply save the object for later
                     results[1] = state;
                 }
-    
+
                 if (log.isDebugEnabled()) {
                     if (StringUtils.hasText(settings.getNetworkProxyHttpsUser())) {
                         log.debug(String.format("Using authenticated HTTPS proxy [%s:%s]", proxyHost, proxyPort));
@@ -469,6 +469,7 @@ public class CommonsHttpTransport implements Transport, StatsAware {
 
         HostConfiguration hostConfig = new HostConfiguration();
         if (sign) {
+            log.trace("Signing request " + httpInfo);
             String accessKey = settings.getProperty("awsAccessKeyId");
             String secretKey = settings.getProperty("awsSecretAccessKey");
             String region = settings.getProperty("es.aws.region");
@@ -518,7 +519,6 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                         queryList,
                         payload
                 );
-                System.out.println(authHeader);
             } catch(Exception e) {
                 log.error(e.getMessage());
             }
@@ -527,11 +527,13 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             authHeaders.add(new Header("X-Amz-Date", AwsSigner.formatDateTime(date)));
             HostParams hostParams = new HostParams();
             hostParams.setParameter(HostParams.DEFAULT_HEADERS, authHeaders);
+            log.trace("Authorization header: " + authHeader);
             hostConfig.setParams(hostParams);
         }
 
         long start = System.currentTimeMillis();
         try {
+            log.trace("Executing " + httpInfo);
             if (sign) {
                 client.executeMethod(hostConfig, http);
             } else {
