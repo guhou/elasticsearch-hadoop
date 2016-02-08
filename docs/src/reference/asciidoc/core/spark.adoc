@@ -178,7 +178,7 @@ public class TripBean implements Serializable {
 
 [source,java]
 ----
-import static org.elasticsearch.spark.java.api.JavaEsSpark;                <1>
+import static org.elasticsearch.spark.rdd.java.api.JavaEsSpark;                <1>
 ...
 
 TripBean upcoming = new TripBean("OTP", "SFO");
@@ -359,7 +359,7 @@ In a similar fashion, on the Java side, +JavaEsSpark+ provides +saveToEsWithMeta
 
 [source,java]
 ----
-import org.elasticsearch.spark.java.api.JavaEsSpark;
+import org.elasticsearch.spark.rdd.java.api.JavaEsSpark;
 
 // data to be saved
 Map<String, ?> otp = ImmutableMap.of("iata", "OTP", "name", "Otopeni");
@@ -383,7 +383,7 @@ When more than just the id needs to be specified, one can chose to use a +java.u
 
 [source,java]
 ----
-import org.elasticsearch.spark.java.api.JavaEsSpark;
+import org.elasticsearch.spark.rdd.java.api.JavaEsSpark;
 import org.elasticsearch.spark.rdd.Metadata;          <1>
 
 import static org.elasticsearch.spark.rdd.Metadata.*; <2>
@@ -474,7 +474,7 @@ Java users have a dedicated `JavaPairRDD` that works the same as its Scala count
 [source,java]
 ----
 import org.apache.spark.api.java.JavaSparkContext;               <1>
-import org.elasticsearch.spark.java.api.JavaEsSpark;             <2>
+import org.elasticsearch.spark.rdd.java.api.JavaEsSpark;             <2>
 ...
 
 SparkConf conf = ...
@@ -494,7 +494,7 @@ Let us see how this looks like, but this time around using http://docs.oracle.co
 
 [source,java]
 ----
-import static org.elasticsearch.spark.java.api.JavaEsSpark.*;          <1>
+import static org.elasticsearch.spark.rdd.java.api.JavaEsSpark.*;          <1>
 
 ...
 JavaRDD<Map<String, Object>> esRDD =
@@ -694,7 +694,7 @@ import org.elasticsearch.spark.sql.java.api.JavaEsSpark SQL;  <2>
 ...
 
 DataFrame people = ...
-JavaEsSpark SQL.saveToEs("spark/people");                     <3>
+JavaEsSparkSQL.saveToEs(people, "spark/people");                     <3>
 ----
 
 <1> Spark SQL Java imports
@@ -855,7 +855,7 @@ The __sources__ declaration also allows specific options to be passed in, namely
 |===
 | Name | Default value| Description
 
-| `path`             | {es} index/type    | _required_
+| `path`             |  _required_        | {es} index/type
 | `pushdown`         | `true`             | Whether to translate (__push-down__) Spark SQL into {es} Query DSL
 | `strict`           | `false`            | Whether to use _exact_ (not analyzed) matching or not (analyzed)
 
@@ -1034,7 +1034,7 @@ import org.elasticsearch.spark.sql._          <2>
 
 val sql = new SQLContext(sc)
 
-val people = sql.esDF("spark/people") <3>
+val people = sql.esDF("spark/people")         <3>
 
 // check the associated schema
 println(people.schema.treeString)             <4>
@@ -1087,7 +1087,7 @@ For Java users, a dedicated API exists through +JavaEsSpark SQL+. It is striking
 [source,java]
 ----
 import org.apache.spark.sql.api.java.JavaSQLContext;          <1>
-import org.elasticsearch.spark.sql.java.api.JavaEsSpark SQL;   <2>
+import org.elasticsearch.spark.sql.java.api.JavaEsSparkSQL;   <2>
 ...
 SQLContext sql = new SQLContext(sc);
 
@@ -1128,7 +1128,7 @@ import org.elasticsearch.spark.sql._          <2>
 
 val sql = new SQLContext(sc)
 
-val people = sql.esRDD("spark/people") <3>
+val people = sql.esRDD("spark/people")        <3>
 
 // check the associated schema
 println(people.schema)                        <4>
@@ -1161,7 +1161,7 @@ val smiths = sqlContext.esRDD("spark/people","?q=Smith" <1>)
 [source,java]
 ----
 import org.apache.spark.sql.api.java.JavaSQLContext;               <1>
-import org.elasticsearch.spark.sql.java.api.JavaEsSpark SQL;        <2>
+import org.elasticsearch.spark.sql.java.api.JavaEsSparkSQL;        <2>
 ...
 JavaSQLContext jsql = new JavaSQLContext(sc);
 

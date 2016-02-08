@@ -9,30 +9,20 @@ Elasticsearch (__1.x__ or higher (2.x _highly_ recommended)) cluster accessible 
 Significant effort has been invested to create a small, dependency-free, self-contained jar that can be downloaded and put to use without any dependencies. Simply make it available to your job classpath and you're set.
 For a certain library, see the dedicated [chapter](http://www.elastic.co/guide/en/elasticsearch/hadoop/current/requirements.html).
 
-ES-Hadoop 2.0.x and 2.1.x are compatible with Elasticsearch __1.X__ only
-
 ES-Hadoop 2.2.x and higher are compatible with Elasticsearch __1.X__ and __2.X__
+
+ES-Hadoop 2.0.x and 2.1.x are compatible with Elasticsearch __1.X__ *only*
 
 ## Installation
 
-### Stable Release (currently `2.1.2`)
+### Stable Release (currently `2.2.0`)
 Available through any Maven-compatible tool:
 
 ```xml
 <dependency>
   <groupId>org.elasticsearch</groupId>
   <artifactId>elasticsearch-hadoop</artifactId>
-  <version>2.1.2</version>
-</dependency>
-```
-### Beta Release (currently `2.2.0-rc1`)
-Available through any Maven-compatible tool:
-
-```xml
-<dependency>
-  <groupId>org.elasticsearch</groupId>
-  <artifactId>elasticsearch-hadoop</artifactId>
-  <version>2.2.0-rc1</version>
+  <version>2.2.0</version>
 </dependency>
 ```
 or as a stand-alone [ZIP](http://www.elastic.co/downloads/hadoop).
@@ -45,7 +35,7 @@ Grab the latest nightly build from the [repository](http://oss.sonatype.org/cont
 <dependency>
   <groupId>org.elasticsearch</groupId>
   <artifactId>elasticsearch-hadoop</artifactId>
-  <version>2.2.0.BUILD-SNAPSHOT</version>
+  <version>2.3.0.BUILD-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -233,8 +223,21 @@ val conf = ...
 val sc = new SparkContext(conf)
 sc.esRDD("radio/artists", "?q=me*")
 ```
+
+#### Spark SQL
+```scala
+import org.elasticsearch.spark.sql._
+
+// DataFrame schema automatically inferred
+val df = sqlContext.read.format("es").load("buckethead/albums")
+
+// operations get pushed down and translated at runtime to Elasticsearch QueryDSL
+val playlist = df.filter(df("category").equalTo("pikes").and(df("year").geq(2016)))
+```
+
 ### Writing
 Import the `org.elasticsearch.spark._` package to gain `savetoEs` methods on your `RDD`s:
+
 ```scala
 import org.elasticsearch.spark._        
 
@@ -247,21 +250,38 @@ val airports = Map("OTP" -> "Otopeni", "SFO" -> "San Fran")
 sc.makeRDD(Seq(numbers, airports)).saveToEs("spark/docs")
 ```
 
+#### Spark SQL
+
+```scala
+import org.elasticsearch.spark.sql._
+
+val df = sqlContext.read.json("examples/people.json")
+df.saveToES("spark/people")
+```
+
 ### Java
 
-In a Java environment, use the `org.elasticsearch.spark.java.api` package, in particular the `JavaEsSpark` class.
+In a Java environment, use the `org.elasticsearch.spark.rdd.java.api` package, in particular the `JavaEsSpark` class.
 
 ### Reading
 To read data from ES, create a dedicated `RDD` and specify the query as an argument.
 
 ```java
 import org.apache.spark.api.java.JavaSparkContext;   
-import org.elasticsearch.spark.java.api.JavaEsSpark; 
+import org.elasticsearch.spark.rdd.java.api.JavaEsSpark; 
 
 SparkConf conf = ...
 JavaSparkContext jsc = new JavaSparkContext(conf);   
 
 JavaPairRDD<String, Map<String, Object>> esRDD = JavaEsSpark.esRDD(jsc, "radio/artists");
+```
+
+#### Spark SQL
+
+```java
+SQLContext sql = new SQLContext(sc);
+DataFrame df = sql.read().format("es").load("buckethead/albums");
+DataFrame playlist = df.filter(df.col("category").equalTo("pikes").and(df.col("year").geq(2016)))
 ```
 
 ### Writing
@@ -279,6 +299,16 @@ Map<String, ?> airports = ImmutableMap.of("OTP", "Otopeni", "SFO", "San Fran");
 JavaRDD<Map<String, ?>> javaRDD = jsc.parallelize(ImmutableList.of(doc1, doc2)); 
 JavaEsSpark.saveToEs(javaRDD, "spark/docs");
 ```
+
+#### Spark SQL
+
+```java
+import org.elasticsearch.spark.sql.java.api.JavaEsSparkSQL;
+
+DataFrame df = sqlContext.read.json("examples/people.json")
+JavaEsSparkSQL.saveToES(df, "spark/docs")
+```
+
 
 ## [Cascading][]
 ES-Hadoop offers a dedicate Elasticsearch [Tap][], `EsTap` that can be used both as a sink or a source. Note that `EsTap` can be used in both local (`LocalFlowConnector`) and Hadoop (`HadoopFlowConnector`) flows:
