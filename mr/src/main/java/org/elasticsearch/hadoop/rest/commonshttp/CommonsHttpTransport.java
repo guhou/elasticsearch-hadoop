@@ -20,30 +20,50 @@ package org.elasticsearch.hadoop.rest.commonshttp;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.net.Socket;
+import java.security.PrivilegedExceptionAction;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
 import java.util.Locale;
-import java.util.*;
+import java.util.Map;
 
-import org.apache.commons.httpclient.*;
+import javax.security.auth.kerberos.KerberosPrincipal;
+
+import org.apache.commons.httpclient.Credentials;
+import org.apache.commons.httpclient.DefaultHttpMethodRetryHandler;
+import org.apache.commons.httpclient.Header;
+import org.apache.commons.httpclient.HostConfiguration;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.HttpConnection;
+import org.apache.commons.httpclient.HttpConnectionManager;
+import org.apache.commons.httpclient.HttpMethod;
+import org.apache.commons.httpclient.HttpState;
 import org.apache.commons.httpclient.HttpStatus;
+import org.apache.commons.httpclient.SimpleHttpConnectionManager;
+import org.apache.commons.httpclient.URI;
+import org.apache.commons.httpclient.URIException;
+import org.apache.commons.httpclient.UsernamePasswordCredentials;
 import org.apache.commons.httpclient.auth.AuthChallengeParser;
 import org.apache.commons.httpclient.auth.AuthPolicy;
 import org.apache.commons.httpclient.auth.AuthScheme;
 import org.apache.commons.httpclient.auth.AuthScope;
 import org.apache.commons.httpclient.auth.AuthState;
-import org.apache.commons.httpclient.methods.*;
-import org.apache.commons.httpclient.params.HttpClientParams;
-import org.apache.commons.httpclient.params.HttpConnectionManagerParams;
-import org.apache.commons.httpclient.params.HttpMethodParams;
 import org.apache.commons.httpclient.methods.EntityEnclosingMethod;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.methods.HeadMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
 import org.apache.commons.httpclient.methods.PutMethod;
-import org.apache.commons.httpclient.params.*;
+import org.apache.commons.httpclient.params.HostParams;
+import org.apache.commons.httpclient.params.HttpClientParams;
+import org.apache.commons.httpclient.params.HttpConnectionManagerParams;
+import org.apache.commons.httpclient.params.HttpMethodParams;
 import org.apache.commons.httpclient.protocol.Protocol;
 import org.apache.commons.httpclient.protocol.ProtocolSocketFactory;
 import org.apache.commons.httpclient.protocol.SecureProtocolSocketFactory;
@@ -53,14 +73,21 @@ import org.elasticsearch.hadoop.EsHadoopIllegalArgumentException;
 import org.elasticsearch.hadoop.EsHadoopIllegalStateException;
 import org.elasticsearch.hadoop.cfg.ConfigurationOptions;
 import org.elasticsearch.hadoop.cfg.Settings;
-import org.elasticsearch.hadoop.rest.*;
+import org.elasticsearch.hadoop.rest.DelegatingInputStream;
+import org.elasticsearch.hadoop.rest.EsHadoopInvalidRequest;
+import org.elasticsearch.hadoop.rest.EsHadoopTransportException;
+import org.elasticsearch.hadoop.rest.HeaderProcessor;
+import org.elasticsearch.hadoop.rest.Request;
+import org.elasticsearch.hadoop.rest.Response;
+import org.elasticsearch.hadoop.rest.ReusableInputStream;
+import org.elasticsearch.hadoop.rest.SimpleResponse;
+import org.elasticsearch.hadoop.rest.Transport;
 import org.elasticsearch.hadoop.rest.commonshttp.auth.EsHadoopAuthPolicies;
 import org.elasticsearch.hadoop.rest.commonshttp.auth.bearer.EsApiKeyAuthScheme;
 import org.elasticsearch.hadoop.rest.commonshttp.auth.bearer.EsApiKeyCredentials;
 import org.elasticsearch.hadoop.rest.commonshttp.auth.spnego.SpnegoAuthScheme;
 import org.elasticsearch.hadoop.rest.commonshttp.auth.spnego.SpnegoCredentials;
 import org.elasticsearch.hadoop.rest.stats.Stats;
-import org.elasticsearch.hadoop.rest.stats.StatsAware;
 import org.elasticsearch.hadoop.security.SecureSettings;
 import org.elasticsearch.hadoop.security.User;
 import org.elasticsearch.hadoop.security.UserProvider;
@@ -69,23 +96,10 @@ import org.elasticsearch.hadoop.util.ReflectionUtils;
 import org.elasticsearch.hadoop.util.StringUtils;
 import org.elasticsearch.hadoop.util.encoding.HttpEncodingTools;
 
-import java.io.ByteArrayInputStream;
-import java.io.Closeable;
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Method;
-import java.net.Socket;
-import java.security.PrivilegedExceptionAction;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import javax.security.auth.kerberos.KerberosPrincipal;
-
 /**
  * Transport implemented on top of Commons Http. Provides transport retries.
  */
-public class CommonsHttpTransport implements Transport, StatsAware {
+public class CommonsHttpTransport implements Transport {
 
     private static final String WWW_AUTHENTICATE = "WWW-Authenticate";
 
@@ -97,7 +111,6 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         ReflectionUtils.makeAccessible(GET_SOCKET);
     }
 
-
     private final HttpClient client;
     private final HeaderProcessor headers;
     protected Stats stats = new Stats();
@@ -107,7 +120,6 @@ public class CommonsHttpTransport implements Transport, StatsAware {
     private final boolean sslEnabled;
     private final String pathPrefix;
     private final Settings settings;
-    private final SecureSettings secureSettings;
     private final String clusterName;
     private final UserProvider userProvider;
     private UserProvider proxyUserProvider = null;
@@ -116,7 +128,10 @@ public class CommonsHttpTransport implements Transport, StatsAware {
     /** If the HTTP Connection is made through a proxy */
     private boolean isProxied = false;
 
-    /** If the Socket Factory used for HTTP Connections extends SecureProtocolSocketFactory */
+    /**
+     * If the Socket Factory used for HTTP Connections extends
+     * SecureProtocolSocketFactory
+     */
     private boolean isSecure = false;
 
     private static class ResponseInputStream extends DelegatingInputStream implements ReusableInputStream {
@@ -193,8 +208,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             log.debug("Creating new CommonsHttpTransport");
         }
         this.settings = settings;
-        this.secureSettings = secureSettings;
-        this.clusterName = settings.getClusterInfoOrUnnamedLatest().getClusterName().getName(); // May be a bootstrap client.
+        this.clusterName = settings.getClusterInfoOrUnnamedLatest().getClusterName().getName(); // May be a bootstrap
+                                                                                                // client.
         if (StringUtils.hasText(settings.getSecurityUserProviderClass())) {
             this.userProvider = UserProvider.create(settings);
         } else {
@@ -204,21 +219,22 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         sslEnabled = settings.getNetworkSSLEnabled();
 
         String pathPref = settings.getNodesPathPrefix();
-        pathPrefix = (StringUtils.hasText(pathPref) ? addLeadingSlashIfNeeded(StringUtils.trimWhitespace(pathPref)) : StringUtils.trimWhitespace(pathPref));
+        pathPrefix = (StringUtils.hasText(pathPref) ? addLeadingSlashIfNeeded(StringUtils.trimWhitespace(pathPref))
+                : StringUtils.trimWhitespace(pathPref));
 
         HttpClientParams params = new HttpClientParams();
-        params.setParameter(HttpMethodParams.RETRY_HANDLER, new DefaultHttpMethodRetryHandler(
-                settings.getHttpRetries(), false) {
+        params.setParameter(HttpMethodParams.RETRY_HANDLER,
+                new DefaultHttpMethodRetryHandler(settings.getHttpRetries(), false) {
 
-            @Override
-            public boolean retryMethod(HttpMethod method, IOException exception, int executionCount) {
-                if (super.retryMethod(method, exception, executionCount)) {
-                    stats.netRetries++;
-                    return true;
-                }
-                return false;
-            }
-        });
+                    @Override
+                    public boolean retryMethod(HttpMethod method, IOException exception, int executionCount) {
+                        if (super.retryMethod(method, exception, executionCount)) {
+                            stats.netRetries++;
+                            return true;
+                        }
+                        return false;
+                    }
+                });
 
         // Max time to wait for a connection from the connectionMgr pool
         params.setConnectionManagerTimeout(settings.getHttpTimeout());
@@ -259,7 +275,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         }
     }
 
-    private HostConfiguration setupSSLIfNeeded(Settings settings, SecureSettings secureSettings, HostConfiguration hostConfig) {
+    private HostConfiguration setupSSLIfNeeded(Settings settings, SecureSettings secureSettings,
+            HostConfiguration hostConfig) {
         if (!sslEnabled) {
             return hostConfig;
         }
@@ -290,7 +307,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             HttpState state = (authSettings[1] != null ? (HttpState) authSettings[1] : new HttpState());
             authSettings[1] = state;
             // TODO: Limit this by hosts and ports
-            AuthScope scope = new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT, AuthScope.ANY_REALM, AuthPolicy.BASIC);
+            AuthScope scope = new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT, AuthScope.ANY_REALM,
+                    AuthPolicy.BASIC);
             Credentials usernamePassword = new UsernamePasswordCredentials(settings.getNetworkHttpAuthUser(),
                     secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_HTTP_AUTH_PASS));
             state.setCredentials(scope, usernamePassword);
@@ -311,7 +329,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                 HttpState state = (authSettings[1] != null ? (HttpState) authSettings[1] : new HttpState());
                 authSettings[1] = state;
                 // TODO: Limit this by hosts and ports
-                AuthScope scope = new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT, AuthScope.ANY_REALM, EsHadoopAuthPolicies.APIKEY);
+                AuthScope scope = new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT, AuthScope.ANY_REALM,
+                        EsHadoopAuthPolicies.APIKEY);
                 Credentials tokenCredentials = new EsApiKeyCredentials(userProvider, clusterName);
                 state.setCredentials(scope, tokenCredentials);
                 if (log.isDebugEnabled()) {
@@ -320,14 +339,16 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                 EsHadoopAuthPolicies.registerAuthSchemes();
                 authPrefs.add(EsHadoopAuthPolicies.APIKEY);
             } else if (userProvider.isEsKerberosEnabled()) {
-                // Add SPNEGO auth if a kerberos principal exists on the user and the elastic principal is set
+                // Add SPNEGO auth if a kerberos principal exists on the user and the elastic
+                // principal is set
                 // Only do this if a token does not exist on the current user.
                 // The auth mode may say that it is Kerberos, but the client
                 // could be running in a remote JVM that does not have the
                 // Kerberos credentials available.
                 if (!StringUtils.hasText(settings.getNetworkSpnegoAuthElasticsearchPrincipal())) {
-                    throw new EsHadoopIllegalArgumentException("Missing Elasticsearch Kerberos Principal name. " +
-                            "Specify one with [" + ConfigurationOptions.ES_NET_SPNEGO_AUTH_ELASTICSEARCH_PRINCIPAL + "]");
+                    throw new EsHadoopIllegalArgumentException(
+                            "Missing Elasticsearch Kerberos Principal name. " + "Specify one with ["
+                                    + ConfigurationOptions.ES_NET_SPNEGO_AUTH_ELASTICSEARCH_PRINCIPAL + "]");
                 }
 
                 // Pick the appropriate user provider to get credentials from for SPNEGO auth
@@ -342,13 +363,13 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                     User realUser = proxyUserProvider.getUser();
                     KerberosPrincipal realPrincipal = realUser.getKerberosPrincipal();
                     if (realPrincipal == null) {
-                        throw new EsHadoopIllegalArgumentException("Could not locate Kerberos Principal on real user [" +
-                                realUser.getUserName() + "] underneath proxy user [" + runAsUser + "]");
+                        throw new EsHadoopIllegalArgumentException("Could not locate Kerberos Principal on real user ["
+                                + realUser.getUserName() + "] underneath proxy user [" + runAsUser + "]");
                     }
 
                     if (log.isDebugEnabled()) {
-                        log.debug("Using detected SPNEGO credentials for real user [" + realUser.getUserName() + "] to proxy as [" +
-                                runAsUser + "]...");
+                        log.debug("Using detected SPNEGO credentials for real user [" + realUser.getUserName()
+                                + "] to proxy as [" + runAsUser + "]...");
                     }
                     credentialUserProvider = proxyUserProvider;
                 } else if (user.getKerberosPrincipal() != null) {
@@ -358,16 +379,20 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                     }
                     credentialUserProvider = userProvider;
                 } else {
-                    throw new EsHadoopIllegalArgumentException("Could not locate Kerberos Principal on currently logged in user.");
+                    throw new EsHadoopIllegalArgumentException(
+                            "Could not locate Kerberos Principal on currently logged in user.");
                 }
 
                 // Add the user provider to credentials
                 HttpState state = (authSettings[1] != null ? (HttpState) authSettings[1] : new HttpState());
                 authSettings[1] = state;
                 // TODO: Limit this by hosts and ports
-                AuthScope scope = new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT, AuthScope.ANY_REALM, EsHadoopAuthPolicies.NEGOTIATE);
-                // TODO: This should just pass in the user provider instead of getting the user principal at this point.
-                Credentials credential = new SpnegoCredentials(credentialUserProvider, settings.getNetworkSpnegoAuthElasticsearchPrincipal());
+                AuthScope scope = new AuthScope(AuthScope.ANY_HOST, AuthScope.ANY_PORT, AuthScope.ANY_REALM,
+                        EsHadoopAuthPolicies.NEGOTIATE);
+                // TODO: This should just pass in the user provider instead of getting the user
+                // principal at this point.
+                Credentials credential = new SpnegoCredentials(credentialUserProvider,
+                        settings.getNetworkSpnegoAuthElasticsearchPrincipal());
                 state.setCredentials(scope, credential);
                 EsHadoopAuthPolicies.registerAuthSchemes();
                 authPrefs.add(EsHadoopAuthPolicies.NEGOTIATE);
@@ -389,7 +414,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         }
     }
 
-    private Object[] setupHttpOrHttpsProxy(Settings settings, SecureSettings secureSettings, HostConfiguration hostConfig) {
+    private Object[] setupHttpOrHttpsProxy(Settings settings, SecureSettings secureSettings,
+            HostConfiguration hostConfig) {
         // return HostConfiguration + HttpState
         Object[] results = new Object[2];
         results[0] = hostConfig;
@@ -408,33 +434,38 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             if (settings.getNetworkProxyHttpsPort() > 0) {
                 proxyPort = settings.getNetworkProxyHttpsPort();
             }
-        }
-        else {
-        if (settings.getNetworkHttpUseSystemProperties()) {
-            proxyHost = System.getProperty("http.proxyHost");
-            proxyPort = Integer.getInteger("http.proxyPort", -1);
-        }
-        if (StringUtils.hasText(settings.getNetworkProxyHttpHost())) {
-            proxyHost = settings.getNetworkProxyHttpHost();
-        }
-        if (settings.getNetworkProxyHttpPort() > 0) {
-            proxyPort = settings.getNetworkProxyHttpPort();
-        }
+        } else {
+            if (settings.getNetworkHttpUseSystemProperties()) {
+                proxyHost = System.getProperty("http.proxyHost");
+                proxyPort = Integer.getInteger("http.proxyPort", -1);
+            }
+            if (StringUtils.hasText(settings.getNetworkProxyHttpHost())) {
+                proxyHost = settings.getNetworkProxyHttpHost();
+            }
+            if (settings.getNetworkProxyHttpPort() > 0) {
+                proxyPort = settings.getNetworkProxyHttpPort();
+            }
         }
 
         if (StringUtils.hasText(proxyHost)) {
             hostConfig.setProxy(proxyHost, proxyPort);
             isProxied = true;
-            proxyInfo = proxyInfo.concat(String.format(Locale.ROOT, "[%s proxy %s:%s]", (sslEnabled ? "HTTPS" : "HTTP"), proxyHost, proxyPort));
+            proxyInfo = proxyInfo.concat(String.format(Locale.ROOT, "[%s proxy %s:%s]", (sslEnabled ? "HTTPS" : "HTTP"),
+                    proxyHost, proxyPort));
 
             // client is not yet initialized so postpone state
             if (sslEnabled) {
                 if (StringUtils.hasText(settings.getNetworkProxyHttpsUser())) {
-                    if (!StringUtils.hasText(secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTPS_PASS))) {
-                        log.warn(String.format("HTTPS proxy user specified but no/empty password defined - double check the [%s] property", ConfigurationOptions.ES_NET_PROXY_HTTPS_PASS));
+                    if (!StringUtils
+                            .hasText(secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTPS_PASS))) {
+                        log.warn(String.format(
+                                "HTTPS proxy user specified but no/empty password defined - double check the [%s] property",
+                                ConfigurationOptions.ES_NET_PROXY_HTTPS_PASS));
                     }
                     HttpState state = new HttpState();
-                    state.setProxyCredentials(AuthScope.ANY, new UsernamePasswordCredentials(settings.getNetworkProxyHttpsUser(), secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTPS_PASS)));
+                    state.setProxyCredentials(AuthScope.ANY,
+                            new UsernamePasswordCredentials(settings.getNetworkProxyHttpsUser(),
+                                    secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTPS_PASS)));
                     // client is not yet initialized so simply save the object for later
                     results[1] = state;
                 }
@@ -442,45 +473,51 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                 if (log.isDebugEnabled()) {
                     if (StringUtils.hasText(settings.getNetworkProxyHttpsUser())) {
                         log.debug(String.format("Using authenticated HTTPS proxy [%s:%s]", proxyHost, proxyPort));
-                    }
-                    else {
+                    } else {
                         log.debug(String.format("Using HTTPS proxy [%s:%s]", proxyHost, proxyPort));
                     }
                 }
-            }
-            else {
-            if (StringUtils.hasText(settings.getNetworkProxyHttpUser())) {
-                if (!StringUtils.hasText(settings.getNetworkProxyHttpPass())) {
-                    log.warn(String.format("HTTP proxy user specified but no/empty password defined - double check the [%s] property", ConfigurationOptions.ES_NET_PROXY_HTTP_PASS));
-                }
-                HttpState state = new HttpState();
-                state.setProxyCredentials(AuthScope.ANY, new UsernamePasswordCredentials(settings.getNetworkProxyHttpUser(), settings.getNetworkProxyHttpPass()));
-                // client is not yet initialized so simply save the object for later
-                results[1] = state;
-            }
-
-            if (log.isDebugEnabled()) {
+            } else {
                 if (StringUtils.hasText(settings.getNetworkProxyHttpUser())) {
-                    if (!StringUtils.hasText(secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTP_PASS))) {
-                        log.warn(String.format("HTTP proxy user specified but no/empty password defined - double check the [%s] property", ConfigurationOptions.ES_NET_PROXY_HTTP_PASS));
+                    if (!StringUtils.hasText(settings.getNetworkProxyHttpPass())) {
+                        log.warn(String.format(
+                                "HTTP proxy user specified but no/empty password defined - double check the [%s] property",
+                                ConfigurationOptions.ES_NET_PROXY_HTTP_PASS));
                     }
                     HttpState state = new HttpState();
-                    state.setProxyCredentials(AuthScope.ANY, new UsernamePasswordCredentials(settings.getNetworkProxyHttpUser(), secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTP_PASS)));
+                    state.setProxyCredentials(AuthScope.ANY, new UsernamePasswordCredentials(
+                            settings.getNetworkProxyHttpUser(), settings.getNetworkProxyHttpPass()));
                     // client is not yet initialized so simply save the object for later
                     results[1] = state;
-                    log.debug(String.format("Using authenticated HTTP proxy [%s:%s]", proxyHost, proxyPort));
                 }
-                else {
-                    log.debug(String.format("Using HTTP proxy [%s:%s]", proxyHost, proxyPort));
+
+                if (log.isDebugEnabled()) {
+                    if (StringUtils.hasText(settings.getNetworkProxyHttpUser())) {
+                        if (!StringUtils.hasText(
+                                secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTP_PASS))) {
+                            log.warn(String.format(
+                                    "HTTP proxy user specified but no/empty password defined - double check the [%s] property",
+                                    ConfigurationOptions.ES_NET_PROXY_HTTP_PASS));
+                        }
+                        HttpState state = new HttpState();
+                        state.setProxyCredentials(AuthScope.ANY,
+                                new UsernamePasswordCredentials(settings.getNetworkProxyHttpUser(),
+                                        secureSettings.getSecureProperty(ConfigurationOptions.ES_NET_PROXY_HTTP_PASS)));
+                        // client is not yet initialized so simply save the object for later
+                        results[1] = state;
+                        log.debug(String.format("Using authenticated HTTP proxy [%s:%s]", proxyHost, proxyPort));
+                    } else {
+                        log.debug(String.format("Using HTTP proxy [%s:%s]", proxyHost, proxyPort));
+                    }
                 }
             }
-        }
         }
 
         return results;
     }
 
-    private HostConfiguration setupSocksProxy(Settings settings, SecureSettings secureSettings, HostConfiguration hostConfig) {
+    private HostConfiguration setupSocksProxy(Settings settings, SecureSettings secureSettings,
+            HostConfiguration hostConfig) {
         // set proxy settings
         String proxyHost = null;
         int proxyPort = -1;
@@ -508,7 +545,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
 
         // we actually have a socks proxy, let's start the setup
         if (StringUtils.hasText(proxyHost)) {
-            log.warn("Connecting to Elasticsearch through SOCKS proxy is deprecated in 6.6.0 and will be removed in a later release.");
+            log.warn(
+                    "Connecting to Elasticsearch through SOCKS proxy is deprecated in 6.6.0 and will be removed in a later release.");
             isSecure = false;
             isProxied = true;
             proxyInfo = proxyInfo.concat(String.format("[SOCKS proxy %s:%s]", proxyHost, proxyPort));
@@ -522,8 +560,7 @@ public class CommonsHttpTransport implements Transport, StatsAware {
             if (log.isDebugEnabled()) {
                 if (StringUtils.hasText(proxyUser)) {
                     log.debug(String.format("Using authenticated SOCKS proxy [%s:%s]", proxyHost, proxyPort));
-                }
-                else {
+                } else {
                     log.debug(String.format("Using SOCKS proxy [%s:%s]", proxyHost, proxyPort));
                 }
             }
@@ -550,12 +587,14 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         Protocol directHttp = Protocol.getProtocol(schema);
         if (directHttp instanceof DelegatedProtocol) {
             // unwrap the original
-            directHttp = ((DelegatedProtocol)directHttp).getOriginal();
+            directHttp = ((DelegatedProtocol) directHttp).getOriginal();
             assert directHttp instanceof DelegatedProtocol == false;
         }
         Protocol proxiedHttp = new DelegatedProtocol(socketFactory, directHttp, schema, defaultPort);
-        // NB: register the new protocol since when using absolute URIs, HttpClient#executeMethod will override the configuration (#387)
-        // NB: hence why the original/direct http protocol is saved - as otherwise the connection is not closed since it is considered different
+        // NB: register the new protocol since when using absolute URIs,
+        // HttpClient#executeMethod will override the configuration (#387)
+        // NB: hence why the original/direct http protocol is saved - as otherwise the
+        // connection is not closed since it is considered different
         // NB: (as the protocol identities don't match)
 
         // this is not really needed since it's being replaced later on
@@ -624,7 +663,8 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         ByteSequence ba = request.body();
         if (ba != null && ba.length() > 0) {
             if (!(http instanceof EntityEnclosingMethod)) {
-                throw new IllegalStateException(String.format("Method %s cannot contain body - implementation bug", request.method().name()));
+                throw new IllegalStateException(
+                        String.format("Method %s cannot contain body - implementation bug", request.method().name()));
             }
             EntityEnclosingMethod entityMethod = (EntityEnclosingMethod) http;
             entityMethod.setRequestEntity(new BytesArrayRequestEntity(ba));
@@ -638,7 +678,7 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         // make these conditions mutually exclusive.
         if (runAsUser != null) {
             if (log.isDebugEnabled()) {
-                log.debug("Performing request with runAs user set to ["+runAsUser+"]");
+                log.debug("Performing request with runAs user set to [" + runAsUser + "]");
             }
             http.addRequestHeader("es-security-runas-user", runAsUser);
         } else if (userProvider != null && userProvider.getUser().getEsToken(clusterName) != null) {
@@ -670,26 +710,28 @@ public class CommonsHttpTransport implements Transport, StatsAware {
 
         // when tracing, log everything
         if (log.isTraceEnabled()) {
-            log.trace(String.format("Tx %s[%s]@[%s][%s]?[%s] w/ payload [%s]", proxyInfo, request.method().name(), httpInfo, request.path(), request.params(), request.body()));
+            log.trace(String.format("Tx %s[%s]@[%s][%s]?[%s] w/ payload [%s]", proxyInfo, request.method().name(),
+                    httpInfo, request.path(), request.params(), request.body()));
         }
 
-        boolean sign = settings.getProperty("es.aws.sign") == null ? false : Boolean.parseBoolean(settings.getProperty("es.aws.sign"));
+        boolean sign = settings.getProperty("es.aws.sign") == null ? false
+                : Boolean.parseBoolean(settings.getProperty("es.aws.sign"));
 
         HostConfiguration hostConfig = new HostConfiguration();
         if (sign) {
             log.trace("Signing request " + httpInfo);
             String accessKey = settings.getProperty("awsAccessKeyId");
             String secretKey = settings.getProperty("awsSecretAccessKey");
+            String sessionToken = settings.getProperty("awsSessionToken");
             String region = settings.getProperty("es.aws.region");
             String host = settings.getProperty("es.nodes");
             hostConfig.setHost(host);
             Date date = Calendar.getInstance().getTime();
-            //Date date = new Date(1450437271663L);
-
+            // Date date = new Date(1450437271663L);
 
             ArrayList<AbstractMap.SimpleEntry<String, String>> headerList = new ArrayList<AbstractMap.SimpleEntry<String, String>>();
             http.setRequestHeader(new Header("Host", host));
-            for (Header h: http.getRequestHeaders()) {
+            for (Header h : http.getRequestHeaders()) {
                 headerList.add(new AbstractMap.SimpleEntry<String, String>(h.getName(), h.getValue()));
             }
 
@@ -699,7 +741,7 @@ public class CommonsHttpTransport implements Transport, StatsAware {
                 request.body().writeTo(byteStream);
                 payload = byteStream.toByteArray();
             } catch (Exception e) {
-                payload = new byte[]{};
+                payload = new byte[] {};
             }
 
             ArrayList<AbstractMap.SimpleEntry<String, String>> queryList = new ArrayList<AbstractMap.SimpleEntry<String, String>>();
@@ -715,24 +757,15 @@ public class CommonsHttpTransport implements Transport, StatsAware {
 
             String authHeader = "";
             try {
-                authHeader = AwsSigner.getAuthHeader(
-                        accessKey,
-                        secretKey,
-                        date,
-                        region,
-                        "es",
-                        request.method().name(),
-                        signingPath,
-                        headerList,
-                        queryList,
-                        payload
-                );
-            } catch(Exception e) {
+                authHeader = AwsSigner.getAuthHeader(accessKey, secretKey, date, region, "es", request.method().name(),
+                        signingPath, headerList, queryList, payload);
+            } catch (Exception e) {
                 log.error(e.getMessage());
             }
             ArrayList<Header> authHeaders = new ArrayList<Header>();
             authHeaders.add(new Header("Authorization", authHeader));
             authHeaders.add(new Header("X-Amz-Date", AwsSigner.formatDateTime(date)));
+            authHeaders.add(new Header("X-Amz-Security-Token", sessionToken));
             HostParams hostParams = new HostParams();
             hostParams.setParameter(HostParams.DEFAULT_HEADERS, authHeaders);
             log.trace("Authorization header: " + authHeader);
@@ -756,15 +789,18 @@ public class CommonsHttpTransport implements Transport, StatsAware {
         if (log.isTraceEnabled()) {
             Socket sk = ReflectionUtils.invoke(GET_SOCKET, conn, (Object[]) null);
             String addr = sk.getLocalAddress().getHostAddress();
-            log.trace(String.format("Rx %s@[%s] [%s-%s] [%s]", proxyInfo, addr, http.getStatusCode(), HttpStatus.getStatusText(http.getStatusCode()), http.getResponseBodyAsString()));
+            log.trace(String.format("Rx %s@[%s] [%s-%s] [%s]", proxyInfo, addr, http.getStatusCode(),
+                    HttpStatus.getStatusText(http.getStatusCode()), http.getResponseBodyAsString()));
         }
 
-        // the request URI is not set (since it is retried across hosts), so use the http info instead for source
+        // the request URI is not set (since it is retried across hosts), so use the
+        // http info instead for source
         return new SimpleResponse(http.getStatusCode(), new ResponseInputStream(http), httpInfo);
     }
 
     /**
      * Actually perform the request
+     *
      * @param method the HTTP method to perform
      * @throws IOException If there is an issue during the method execution
      */
@@ -780,7 +816,9 @@ public class CommonsHttpTransport implements Transport, StatsAware {
     }
 
     /**
-     * Close any authentication resources that we may still have open and perform any after-response duties that we need to perform.
+     * Close any authentication resources that we may still have open and perform
+     * any after-response duties that we need to perform.
+     *
      * @param method The method that has been executed
      * @throws IOException If any issues arise during post processing
      */
@@ -791,20 +829,22 @@ public class CommonsHttpTransport implements Transport, StatsAware {
 
             if (authScheme instanceof SpnegoAuthScheme && settings.getNetworkSpnegoAuthMutual()) {
                 // Perform Mutual Authentication
-                SpnegoAuthScheme spnegoAuthScheme = ((SpnegoAuthScheme) authScheme);
-                Map challenges = AuthChallengeParser.parseChallenges(method.getResponseHeaders(WWW_AUTHENTICATE));
-                String id = spnegoAuthScheme.getSchemeName();
-                String challenge = (String) challenges.get(id.toLowerCase());
-                if (challenge == null) {
-                    throw new IOException(id + " authorization challenge expected, but not found");
+                try (SpnegoAuthScheme spnegoAuthScheme = ((SpnegoAuthScheme) authScheme)) {
+                    Map challenges = AuthChallengeParser.parseChallenges(method.getResponseHeaders(WWW_AUTHENTICATE));
+                    String id = spnegoAuthScheme.getSchemeName();
+                    String challenge = (String) challenges.get(id.toLowerCase());
+                    if (challenge == null) {
+                        throw new IOException(id + " authorization challenge expected, but not found");
+                    }
+                    spnegoAuthScheme.ensureMutualAuth(challenge);
                 }
-                spnegoAuthScheme.ensureMutualAuth(challenge);
             }
         }
     }
 
     /**
      * Close the underlying authscheme if it is a Closeable object.
+     *
      * @param method Executing method
      * @throws IOException If the scheme could not be closed
      */
